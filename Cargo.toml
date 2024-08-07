@@ -1,0 +1,9 @@
+[package]
+name = "ray-tracing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nalgebra = { version = "0.33.0", features = ["rand"] }
+rand = "0.8.5"
+rgb = "0.8.45"
