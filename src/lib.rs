@@ -19,22 +19,3 @@ impl Ray {
         self.origin + t * self.dir
     }
 }
-
-pub struct Interval {
-    pub min: f32,
-    pub max: f32,
-}
-
-impl Interval {
-    pub const fn new(min: f32, max: f32) -> Self {
-        Self { min, max }
-    }
-
-    pub fn surrounds(&self, x: f32) -> bool {
-        self.min < x && self.max > x
-    }
-
-    pub fn clamp(&self, x: f32) -> f32 {
-        x.clamp(self.min, self.max)
-    }
-}

@@ -1,7 +1,7 @@
 use bevy::{color::Color, math::Vec3};
 use rand::Rng;
 
-use crate::{mesh::Mesh, utils::random_in_unit_disk, Interval, Ray};
+use crate::{mesh::Mesh, utils::random_in_unit_disk, Ray};
 
 const PI: f32 = 3.1415926535897932385;
 
@@ -103,7 +103,7 @@ impl Camera {
     fn ray_color(&self, ray: &Ray, world: &impl Mesh, depth: i32) -> Vec3 {
         if depth <= 0 {
             Vec3::ZERO
-        } else if let Some(hit) = world.hit(ray, &Interval::new(0.001, f32::INFINITY)) {
+        } else if let Some(hit) = world.hit(ray, 0.001..f32::INFINITY) {
             if let Some(scatter) = hit.material.scatter(ray, &hit) {
                 scatter.attenuation * self.ray_color(&scatter.scattered, world, depth - 1)
             } else {
@@ -140,15 +140,15 @@ impl Camera {
     }
 
     fn render_color(&self, color: Color) {
-        let intensity = Interval::new(0., 0.999);
+        let intensity = 0.0..0.999;
 
         let srgba = color.to_srgba();
 
         println!(
             "{} {} {}",
-            (intensity.clamp(linear_to_gamma(srgba.red)) * 255.) as u8,
-            (intensity.clamp(linear_to_gamma(srgba.green)) * 255.) as u8,
-            (intensity.clamp(linear_to_gamma(srgba.blue)) * 255.) as u8
+            (linear_to_gamma(srgba.red).clamp(intensity.start, intensity.end) * 255.) as u8,
+            (linear_to_gamma(srgba.green).clamp(intensity.start, intensity.end) * 255.) as u8,
+            (linear_to_gamma(srgba.blue).clamp(intensity.start, intensity.end) * 255.) as u8
         );
     }
 

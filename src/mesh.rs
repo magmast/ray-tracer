@@ -1,11 +1,11 @@
-use std::rc::Rc;
+use std::{ops::Range, rc::Rc};
 
 use bevy::math::Vec3;
 
-use crate::{material::Material, Interval, Ray};
+use crate::{material::Material, Ray};
 
 pub trait Mesh {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit>;
+    fn hit(&self, ray: &Ray, ray_t: Range<f32>) -> Option<Hit>;
 }
 
 pub struct Hit {
@@ -50,14 +50,14 @@ impl World {
 }
 
 impl Mesh for World {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+    fn hit(&self, ray: &Ray, ray_t: Range<f32>) -> Option<Hit> {
         let mut current_hit: Option<Hit> = None;
 
-        for hittable in &self.0 {
-            let tmax = current_hit.as_ref().map(|hit| hit.t).unwrap_or(ray_t.max);
-            let t = Interval::new(ray_t.min, tmax);
+        for mesh in &self.0 {
+            let tmax = current_hit.as_ref().map(|hit| hit.t).unwrap_or(ray_t.end);
+            let t = ray_t.start..tmax;
 
-            if let Some(hit) = hittable.hit(ray, &t) {
+            if let Some(hit) = mesh.hit(ray, t) {
                 current_hit = Some(hit);
             }
         }
@@ -84,7 +84,7 @@ impl Sphere {
 }
 
 impl Mesh for Sphere {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+    fn hit(&self, ray: &Ray, ray_t: Range<f32>) -> Option<Hit> {
         let oc = self.center - ray.origin;
         let a = ray.dir.length_squared();
         let h = ray.dir.dot(oc);
@@ -98,9 +98,9 @@ impl Mesh for Sphere {
         let sqrtd = discriminant.sqrt();
 
         let mut root = (h - sqrtd) / a;
-        if !ray_t.surrounds(root) {
+        if !ray_t.contains(&root) {
             root = (h + sqrtd) / a;
-            if !ray_t.surrounds(root) {
+            if !ray_t.contains(&root) {
                 return None;
             }
         }
