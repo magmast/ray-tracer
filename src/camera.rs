@@ -1,27 +1,18 @@
-use bevy::{color::Color, math::Vec3};
+use bevy_color::{Color, ColorToComponents as _, ColorToPacked};
+use bevy_math::{Ray3d, Vec3};
+use image::{Rgb, RgbImage};
 use rand::Rng;
 
-use crate::{mesh::Mesh, utils::random_in_unit_disk, Ray};
-
-const PI: f32 = 3.1415926535897932385;
-
-fn degrees_to_radians(degrees: f32) -> f32 {
-    degrees * PI / 180.
-}
-
-fn linear_to_gamma(linear_component: f32) -> f32 {
-    if linear_component > 0. {
-        linear_component.sqrt()
-    } else {
-        0.
-    }
-}
+use crate::{
+    mesh::Mesh,
+    utils::{degrees_to_radians, random_vec_in_unit_disk},
+};
 
 pub struct CameraConfig {
-    pub width: i32,
-    pub height: i32,
-    pub samples_per_pixel: i32,
-    pub max_depth: i32,
+    pub width: u32,
+    pub height: u32,
+    pub samples_per_pixel: usize,
+    pub max_depth: usize,
     pub vfov: f32,
     pub lookfrom: Vec3,
     pub lookat: Vec3,
@@ -100,78 +91,74 @@ impl Camera {
         }
     }
 
-    fn ray_color(&self, ray: &Ray, world: &impl Mesh, depth: i32) -> Vec3 {
-        if depth <= 0 {
+    pub fn render(&self, world: &(impl Mesh + Sync)) -> RgbImage {
+        RgbImage::from_par_fn(self.config.width, self.config.height, |x, y| {
+            Rgb(self
+                .render_pixel(world, x, y)
+                .to_srgba()
+                .to_u8_array_no_alpha())
+        })
+    }
+
+    fn render_pixel(&self, world: &impl Mesh, x: u32, y: u32) -> Color {
+        let mut rng = rand::thread_rng();
+
+        let color: Vec3 = (0..self.config.samples_per_pixel)
+            .map(|_| {
+                let ray = self.get_ray(&mut rng, x, y);
+                self.ray_color(&ray, world, self.config.max_depth)
+                    .to_linear()
+                    .to_vec3()
+            })
+            .sum();
+
+        let color = self.pixel_samples_scale * color;
+
+        Color::linear_rgb(color.x, color.y, color.z)
+    }
+
+    fn ray_color(&self, ray: &Ray3d, world: &impl Mesh, depth: usize) -> Color {
+        let color_vec = if depth <= 0 {
             Vec3::ZERO
         } else if let Some(hit) = world.hit(ray, 0.001..f32::INFINITY) {
             if let Some(scatter) = hit.material.scatter(ray, &hit) {
-                scatter.attenuation * self.ray_color(&scatter.scattered, world, depth - 1)
+                scatter.attenuation.to_linear().to_vec3()
+                    * self
+                        .ray_color(&scatter.scattered, world, depth - 1)
+                        .to_linear()
+                        .to_vec3()
             } else {
                 Vec3::ZERO
             }
         } else {
-            let unit_dir = ray.dir.normalize();
+            let unit_dir = ray.direction.normalize();
             let a = 0.5 * (unit_dir.y + 1.);
             (1. - a) * Vec3::new(1., 1., 1.) + a * Vec3::new(0.5, 0.7, 1.0)
-        }
+        };
+
+        Color::linear_rgb(color_vec.x, color_vec.y, color_vec.z)
     }
 
-    pub fn render(&self, world: &impl Mesh) {
-        println!("P3\n{} {}\n255", self.config.width, self.config.height);
-
-        let mut rng = rand::thread_rng();
-
-        for y in 0..self.config.height {
-            eprintln!("Scanlines remaining: {}.", self.config.height - y);
-            for x in 0..self.config.width {
-                let mut color = Vec3::ZERO;
-                for _ in 0..self.config.samples_per_pixel {
-                    let ray = self.get_ray(&mut rng, x, y);
-                    color += self.ray_color(&ray, world, self.config.max_depth);
-                }
-
-                self.render_color(Color::srgb_from_array(
-                    (self.pixel_samples_scale * color).to_array(),
-                ));
-            }
-        }
-
-        eprintln!("Done.");
-    }
-
-    fn render_color(&self, color: Color) {
-        let intensity = 0.0..0.999;
-
-        let srgba = color.to_srgba();
-
-        println!(
-            "{} {} {}",
-            (linear_to_gamma(srgba.red).clamp(intensity.start, intensity.end) * 255.) as u8,
-            (linear_to_gamma(srgba.green).clamp(intensity.start, intensity.end) * 255.) as u8,
-            (linear_to_gamma(srgba.blue).clamp(intensity.start, intensity.end) * 255.) as u8
-        );
-    }
-
-    fn get_ray(&self, rng: &mut impl Rng, x: i32, y: i32) -> Ray {
-        let offset = Self::sample_square(rng);
+    fn get_ray(&self, mut rng: impl Rng, x: u32, y: u32) -> Ray3d {
+        let offset = Self::sample_square(&mut rng);
         let pixel_sample = self.pixel00_loc
             + ((x as f32 + offset.x) * self.pixel_delta_u)
             + ((y as f32 + offset.y) * self.pixel_delta_v);
         let ray_origin = if self.config.defocus_angle <= 0. {
             self.center
         } else {
-            self.defocus_disk_sample()
+            self.defocus_disk_sample(&mut rng)
         };
 
-        Ray::new(self.center, pixel_sample - ray_origin)
+        Ray3d::new(ray_origin, pixel_sample - ray_origin)
     }
 
-    fn sample_square(rng: &mut impl Rng) -> Vec3 {
+    fn sample_square(mut rng: impl Rng) -> Vec3 {
         Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, 0.)
     }
 
-    fn defocus_disk_sample(&self) -> Vec3 {
-        let point = random_in_unit_disk();
+    fn defocus_disk_sample(&self, rng: impl Rng) -> Vec3 {
+        let point = random_vec_in_unit_disk(rng);
         self.center + (point.x * self.defocus_disk_u) + (point.y * self.defocus_disk_v)
     }
 }
