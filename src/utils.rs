@@ -38,7 +38,7 @@ pub fn random_unit_vec(rng: impl Rng) -> Vec3 {
     random_vec_in_unit_sphere(rng).normalize()
 }
 
-pub fn near_zero(v: &Vec3) -> bool {
+pub fn near_zero(v: Vec3) -> bool {
     let s = 1e-8;
     v.x.abs() < s && v.y.abs() < s && v.z.abs() < s
 }

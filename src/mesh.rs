@@ -27,12 +27,12 @@ impl Hit {
         }
     }
 
-    pub fn set_face_normal(&mut self, ray: &Ray3d, outward_normal: &Vec3) {
-        self.front_face = ray.direction.dot(*outward_normal) < 0.;
+    pub fn set_face_normal(&mut self, ray: &Ray3d, outward_normal: Vec3) {
+        self.front_face = ray.direction.dot(outward_normal) < 0.;
         self.normal = if self.front_face {
             outward_normal.clone()
         } else {
-            -*outward_normal
+            -outward_normal
         };
     }
 }
@@ -108,7 +108,7 @@ impl Mesh for Sphere {
         let point = ray.get_point(root);
         let outward_normal = (point - self.center) / self.radius;
         let mut hit = Hit::new(point, outward_normal, root, self.material.clone());
-        hit.set_face_normal(ray, &outward_normal);
+        hit.set_face_normal(ray, outward_normal);
 
         Some(hit)
     }
