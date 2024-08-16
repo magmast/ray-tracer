@@ -5,8 +5,10 @@ use bevy_math::Vec3;
 pub mod camera;
 pub mod material;
 pub mod mesh;
+pub mod texture;
 pub mod utils;
 
+#[derive(Default)]
 pub struct Ray {
     pub origin: Vec3,
     pub direction: Vec3,
@@ -72,5 +74,9 @@ impl Interval {
         let start = self.start().min(other.start());
         let end = self.end().max(other.end());
         (start..end).into()
+    }
+
+    pub fn clamp(&self, value: f32) -> f32 {
+        value.clamp(self.start(), self.end())
     }
 }

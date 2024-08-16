@@ -5,6 +5,7 @@ use bevy_math::Vec3;
 
 use crate::{
     mesh::Hit,
+    texture::{SolidTexture, Texture},
     utils::{near_zero, random_unit_vec},
     Ray,
 };
@@ -36,12 +37,16 @@ pub struct Scatter {
 }
 
 pub struct Lambertian {
-    albedo: Color,
+    texture: Arc<dyn Texture + Send + Sync>,
 }
 
 impl Lambertian {
-    pub fn new(albedo: Color) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Lambertian { albedo })
+    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
+        Arc::new(Self { texture })
+    }
+
+    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
+        Self::new(SolidTexture::new(color))
     }
 }
 
@@ -53,7 +58,7 @@ impl Material for Lambertian {
             scatter_dir = hit.normal;
         }
         Some(Scatter {
-            attenuation: self.albedo,
+            attenuation: self.texture.value(hit.uv, hit.point),
             scattered: Ray::new(hit.point, scatter_dir, r_in.time),
         })
     }

@@ -1,8 +1,8 @@
 use std::{ops::Index, sync::Arc};
 
-use bevy_math::Vec3;
+use bevy_math::{Vec2, Vec3};
 
-use crate::{material::Material, Interval, Ray};
+use crate::{material::Material, utils::PI, Interval, Ray};
 
 pub trait Mesh {
     fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit>;
@@ -16,10 +16,17 @@ pub struct Hit {
     pub distance: f32,
     pub front_face: bool,
     pub material: Arc<dyn Material>,
+    pub uv: Vec2,
 }
 
 impl Hit {
-    pub fn new(ray: &Ray, distance: f32, normal: Vec3, material: Arc<dyn Material>) -> Self {
+    pub fn new(
+        ray: &Ray,
+        distance: f32,
+        normal: Vec3,
+        material: Arc<dyn Material>,
+        uv: Vec2,
+    ) -> Self {
         let front_face = ray.direction.dot(normal) < 0.;
         let point = ray.get_point(distance);
 
@@ -29,6 +36,7 @@ impl Hit {
             distance,
             front_face: true,
             material,
+            uv,
         }
     }
 }
@@ -134,6 +142,13 @@ impl Sphere {
     pub fn center(&self, time: f32) -> Vec3 {
         self.initial_center + self.center_delta * time
     }
+
+    fn uv(&self, point: Vec3) -> Vec2 {
+        let theta = (-point.y).acos();
+        let phi = (-point.z).atan2(point.x) + PI;
+
+        Vec2::new(phi / (2. * PI), theta / PI)
+    }
 }
 
 impl Mesh for Sphere {
@@ -161,7 +176,8 @@ impl Mesh for Sphere {
 
         let point = ray.get_point(root);
         let normal = (point - center) / self.radius;
-        Some(Hit::new(ray, root, normal, self.material.clone()))
+        let uv = self.uv(normal);
+        Some(Hit::new(ray, root, normal, self.material.clone(), uv))
     }
 
     fn bounding_box(&self) -> &Aabb {
