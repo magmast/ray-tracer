@@ -8,7 +8,7 @@ use rand::prelude::*;
 use ray_tracing::{
     camera::{Camera, CameraConfig},
     material::{Dielectric, DiffuseLight, Lambertian, Metal},
-    mesh::{Bvh, Quad, Sphere, World},
+    mesh::{Bvh, Cube, Quad, RotateY, Sphere, Translate, World},
     texture::{CheckerTexture, ImageTexture, NoiseTexture, SolidTexture},
     utils::random_vec,
 };
@@ -274,40 +274,55 @@ fn cornell_box() -> ImageResult<(CameraConfig, World)> {
 
     let mut world = World::new();
     world.push(Quad::new(
-        Vec3::new(555.0, 0.0, 0.0),
-        Vec3::new(0.0, 555.0, 0.0),
-        Vec3::new(0.0, 0.0, 555.0),
+        Vec3::X * 555.,
+        Vec3::Y * 555.,
+        Vec3::Z * 555.,
         green.clone(),
     ));
     world.push(Quad::new(
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, 555.0, 0.0),
-        Vec3::new(0.0, 0.0, 555.0),
+        Vec3::ZERO,
+        Vec3::Y * 555.,
+        Vec3::Z * 555.,
         red.clone(),
     ));
     world.push(Quad::new(
-        Vec3::new(343.0, 554.0, 332.0),
-        Vec3::new(-130.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, -105.0),
+        Vec3::new(343., 554., 332.),
+        Vec3::X * -130.0,
+        Vec3::Z * -105.0,
         light.clone(),
     ));
     world.push(Quad::new(
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(555.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, 555.0),
+        Vec3::ZERO,
+        Vec3::X * 555.,
+        Vec3::Z * 555.,
         white.clone(),
     ));
     world.push(Quad::new(
-        Vec3::new(555.0, 555.0, 555.0),
-        Vec3::new(-555.0, 0.0, 0.0),
-        Vec3::new(0.0, 0.0, -555.0),
+        Vec3::ONE * 555.,
+        Vec3::X * -555.,
+        Vec3::Z * -555.,
         white.clone(),
     ));
     world.push(Quad::new(
-        Vec3::new(0.0, 0.0, 555.0),
-        Vec3::new(555.0, 0.0, 0.0),
-        Vec3::new(0.0, 555.0, 0.0),
+        Vec3::Z * 555.,
+        Vec3::X * 555.,
+        Vec3::Y * 555.,
         white.clone(),
+    ));
+
+    world.push(Translate::new(
+        RotateY::new(
+            Cube::new(Vec3::ZERO, Vec3::new(165., 330., 165.), white.clone()),
+            15.,
+        ),
+        Vec3::new(265., 0., 295.),
+    ));
+    world.push(Translate::new(
+        RotateY::new(
+            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white.clone()),
+            -18.,
+        ),
+        Vec3::new(130., 0., 65.),
     ));
 
     Ok((

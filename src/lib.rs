@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Add, Range};
 
 use bevy_math::Vec3;
 
@@ -82,5 +82,21 @@ impl Interval {
 
     pub fn size(&self) -> f32 {
         self.end() - self.start()
+    }
+}
+
+impl Add<f32> for &Interval {
+    type Output = Interval;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        Interval(self.start() + rhs..self.end() + rhs)
+    }
+}
+
+impl Add<f32> for Interval {
+    type Output = Interval;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        &self + rhs
     }
 }

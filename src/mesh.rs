@@ -1,8 +1,15 @@
-use std::{ops::Index, sync::Arc};
+use std::{
+    ops::{Add, Index},
+    sync::Arc,
+};
 
 use bevy_math::{Vec2, Vec3};
 
-use crate::{material::Material, utils::PI, Interval, Ray};
+use crate::{
+    material::Material,
+    utils::{degrees_to_radians, PI},
+    Interval, Ray,
+};
 
 pub trait Mesh {
     fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit>;
@@ -259,6 +266,179 @@ impl Mesh for Quad {
     }
 }
 
+pub struct Cube(World);
+
+impl Cube {
+    pub fn new(a: Vec3, b: Vec3, material: Arc<dyn Material + Sync + Send>) -> Self {
+        let min = Vec3::new(a.x.min(b.x), a.y.min(b.y), a.z.min(b.z));
+        let max = Vec3::new(a.x.max(b.x), a.y.max(b.y), a.z.max(b.z));
+
+        let dx = Vec3::X * (max.x - min.x);
+        let dy = Vec3::Y * (max.y - min.y);
+        let dz = Vec3::Z * (max.z - min.z);
+
+        let mut world = World::new();
+        world.push(Quad::new(
+            Vec3::new(min.x, min.y, max.z),
+            dx,
+            dy,
+            material.clone(),
+        ));
+        world.push(Quad::new(
+            Vec3::new(max.x, min.y, max.z),
+            -dz,
+            dy,
+            material.clone(),
+        ));
+        world.push(Quad::new(
+            Vec3::new(max.x, max.y, min.z),
+            -dx,
+            -dy,
+            material.clone(),
+        ));
+        world.push(Quad::new(
+            Vec3::new(min.x, min.y, min.z),
+            dz,
+            dy,
+            material.clone(),
+        ));
+        world.push(Quad::new(
+            Vec3::new(min.x, max.y, max.z),
+            dx,
+            -dz,
+            material.clone(),
+        ));
+        world.push(Quad::new(
+            Vec3::new(min.x, min.y, min.z),
+            dx,
+            dz,
+            material.clone(),
+        ));
+
+        Self(world)
+    }
+}
+
+impl Mesh for Cube {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        self.0.hit(ray, ray_t)
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.0.bbox
+    }
+}
+
+pub struct Translate<T: Mesh> {
+    bbox: Aabb,
+    offset: Vec3,
+    object: T,
+}
+
+impl<T: Mesh> Translate<T> {
+    pub fn new(object: T, offset: Vec3) -> Self {
+        Self {
+            bbox: object.bounding_box() + offset,
+            object,
+            offset,
+        }
+    }
+}
+
+impl<T: Mesh> Mesh for Translate<T> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let ray = Ray::new(ray.origin - self.offset, ray.direction, ray.time);
+        if let Some(mut hit) = self.object.hit(&ray, ray_t) {
+            hit.point += self.offset;
+            Some(hit)
+        } else {
+            None
+        }
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.bbox
+    }
+}
+
+pub struct RotateY<T: Mesh> {
+    object: T,
+    sin_theta: f32,
+    cos_theta: f32,
+    bbox: Aabb,
+}
+
+impl<T: Mesh> RotateY<T> {
+    pub fn new(object: T, angle: f32) -> Self {
+        let radians = degrees_to_radians(angle);
+        let sin_theta = radians.sin();
+        let cos_theta = radians.cos();
+        let bbox = object.bounding_box().clone();
+
+        let mut min = Vec3::INFINITY;
+        let mut max = Vec3::NEG_INFINITY;
+
+        for i in 0..2 {
+            for j in 0..2 {
+                for k in 0..2 {
+                    let x = i as f32 * bbox.x.end() + (1. - i as f32) * bbox.x.start();
+                    let y = j as f32 * bbox.y.end() + (1. - j as f32) * bbox.y.start();
+                    let z = k as f32 * bbox.z.end() + (1. - k as f32) * bbox.z.start();
+
+                    let newx = cos_theta * x + sin_theta * z;
+                    let newz = -sin_theta * x + cos_theta * z;
+
+                    let tester = Vec3::new(newx, y, newz);
+
+                    for c in 0..3 {
+                        min[c] = min[c].min(tester[c]);
+                        max[c] = max[c].max(tester[c]);
+                    }
+                }
+            }
+        }
+
+        Self {
+            object,
+            sin_theta,
+            cos_theta,
+            bbox: Aabb::from_extremes(min, max),
+        }
+    }
+}
+
+impl<T: Mesh> Mesh for RotateY<T> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let mut origin = ray.origin;
+        let mut direction = ray.direction;
+
+        origin[0] = self.cos_theta * ray.origin[0] - self.sin_theta * ray.origin[2];
+        origin[2] = self.sin_theta * ray.origin[0] + self.cos_theta * ray.origin[2];
+
+        direction[0] = self.cos_theta * ray.direction[0] - self.sin_theta * ray.direction[2];
+        direction[2] = self.sin_theta * ray.direction[0] + self.cos_theta * ray.direction[2];
+
+        if let Some(mut hit) = self
+            .object
+            .hit(&Ray::new(origin, direction, ray.time), ray_t)
+        {
+            hit.point[0] = self.cos_theta * hit.point[0] - self.sin_theta * hit.point[2];
+            hit.point[2] = self.sin_theta * hit.point[0] + self.cos_theta * hit.point[2];
+
+            hit.normal[0] = self.cos_theta * hit.normal[0] - self.sin_theta * hit.normal[2];
+            hit.normal[2] = self.sin_theta * hit.normal[0] + self.cos_theta * hit.normal[2];
+
+            Some(hit)
+        } else {
+            None
+        }
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.bbox
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Aabb {
     x: Interval,
@@ -363,6 +543,18 @@ impl Aabb {
             1
         } else {
             2
+        }
+    }
+}
+
+impl Add<Vec3> for &Aabb {
+    type Output = Aabb;
+
+    fn add(self, rhs: Vec3) -> Self::Output {
+        Aabb {
+            x: &self.x + rhs.x,
+            y: &self.y + rhs.y,
+            z: &self.z + rhs.z,
         }
     }
 }
