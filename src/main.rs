@@ -9,7 +9,7 @@ use ray_tracing::{
     camera::{Camera, CameraConfig},
     material::{Dielectric, Lambertian, Metal},
     mesh::{Bvh, Sphere, World},
-    texture::{CheckerTexture, ImageTexture, SolidTexture},
+    texture::{CheckerTexture, ImageTexture, NoiseTexture, SolidTexture},
     utils::random_vec,
 };
 
@@ -144,8 +144,39 @@ fn earth() -> ImageResult<(CameraConfig, World)> {
     ))
 }
 
+#[allow(unused)]
+fn perlin_spheres() -> ImageResult<(CameraConfig, World)> {
+    let mut world = World::new();
+
+    let perlin = NoiseTexture::<256>::new(rand::thread_rng(), 4.);
+    let perlin_surface = Lambertian::new(perlin);
+
+    world.push(Sphere::stationary(
+        Vec3::Y * -1000.,
+        1000.,
+        perlin_surface.clone(),
+    ));
+    world.push(Sphere::stationary(Vec3::Y * 2., 2., perlin_surface));
+
+    Ok((
+        CameraConfig {
+            width: IMAGE_WIDTH,
+            height: (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32,
+            samples_per_pixel: 100,
+            max_depth: 50,
+            vfov: 20.,
+            lookfrom: Vec3::new(13., 2., 3.),
+            lookat: Vec3::ZERO,
+            vup: Vec3::Y,
+            defocus_angle: 0.,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
 fn main() -> ImageResult<()> {
-    let (camera_config, world) = earth()?;
+    let (camera_config, world) = perlin_spheres()?;
     let bvh_world = Bvh::from(&world);
 
     let camera = Camera::new(camera_config);
