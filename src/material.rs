@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use bevy_color::Color;
-use bevy_math::{Ray3d, Vec3};
+use bevy_math::Vec3;
 
 use crate::{
     mesh::Hit,
     utils::{near_zero, random_unit_vec},
+    Ray,
 };
 
 fn reflectance(cosine: f32, refraction_index: f32) -> f32 {
@@ -26,26 +27,26 @@ fn refract(uv: Vec3, n: Vec3, etai_over_etat: f32) -> Vec3 {
 }
 
 pub trait Material {
-    fn scatter(&self, r_in: &Ray3d, hit: &Hit) -> Option<Scatter>;
+    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter>;
 }
 
 pub struct Scatter {
     pub attenuation: Color,
-    pub scattered: Ray3d,
+    pub scattered: Ray,
 }
 
-pub struct Lamberian {
+pub struct Lambertian {
     albedo: Color,
 }
 
-impl Lamberian {
+impl Lambertian {
     pub fn new(albedo: Color) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Lamberian { albedo })
+        Arc::new(Lambertian { albedo })
     }
 }
 
-impl Material for Lamberian {
-    fn scatter(&self, _r_in: &Ray3d, hit: &Hit) -> Option<Scatter> {
+impl Material for Lambertian {
+    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
         let rng = rand::thread_rng();
         let mut scatter_dir = hit.normal + random_unit_vec(rng);
         if near_zero(scatter_dir) {
@@ -53,7 +54,7 @@ impl Material for Lamberian {
         }
         Some(Scatter {
             attenuation: self.albedo,
-            scattered: Ray3d::new(hit.point, scatter_dir),
+            scattered: Ray::new(hit.point, scatter_dir, r_in.time),
         })
     }
 }
@@ -70,11 +71,10 @@ impl Metal {
 }
 
 impl Material for Metal {
-    fn scatter(&self, r_in: &Ray3d, hit: &Hit) -> Option<Scatter> {
+    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
         let rng = rand::thread_rng();
-        let reflected =
-            reflect(r_in.direction.as_vec3(), hit.normal) + (self.fuzz * random_unit_vec(rng));
-        let scattered = Ray3d::new(hit.point, reflected);
+        let reflected = reflect(r_in.direction, hit.normal) + (self.fuzz * random_unit_vec(rng));
+        let scattered = Ray::new(hit.point, reflected, r_in.time);
         if scattered.direction.dot(hit.normal) > 0. {
             Some(Scatter {
                 attenuation: self.albedo,
@@ -97,7 +97,7 @@ impl Dielectric {
 }
 
 impl Material for Dielectric {
-    fn scatter(&self, r_in: &Ray3d, hit: &Hit) -> Option<Scatter> {
+    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
         let ri = if hit.front_face {
             1. / self.refraction_index
         } else {
@@ -117,7 +117,7 @@ impl Material for Dielectric {
 
         Some(Scatter {
             attenuation: Color::WHITE,
-            scattered: Ray3d::new(hit.point, dir),
+            scattered: Ray::new(hit.point, dir, r_in.time),
         })
     }
 }

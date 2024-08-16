@@ -1,11 +1,12 @@
 use bevy_color::{Color, ColorToComponents as _, ColorToPacked};
-use bevy_math::{Ray3d, Vec3};
+use bevy_math::Vec3;
 use image::{Rgb, RgbImage};
 use rand::Rng;
 
 use crate::{
     mesh::Mesh,
     utils::{degrees_to_radians, random_vec_in_unit_disk},
+    Ray,
 };
 
 pub struct CameraConfig {
@@ -117,10 +118,10 @@ impl Camera {
         Color::linear_rgb(color.x, color.y, color.z)
     }
 
-    fn ray_color(&self, ray: &Ray3d, world: &impl Mesh, depth: usize) -> Color {
+    fn ray_color(&self, ray: &Ray, world: &impl Mesh, depth: usize) -> Color {
         let color_vec = if depth <= 0 {
             Vec3::ZERO
-        } else if let Some(hit) = world.hit(ray, 0.001..f32::INFINITY) {
+        } else if let Some(hit) = world.hit(ray, &(0.001..f32::INFINITY).into()) {
             if let Some(scatter) = hit.material.scatter(ray, &hit) {
                 scatter.attenuation.to_linear().to_vec3()
                     * self
@@ -139,7 +140,7 @@ impl Camera {
         Color::linear_rgb(color_vec.x, color_vec.y, color_vec.z)
     }
 
-    fn get_ray(&self, mut rng: impl Rng, x: u32, y: u32) -> Ray3d {
+    fn get_ray(&self, mut rng: impl Rng, x: u32, y: u32) -> Ray {
         let offset = Self::sample_square(&mut rng);
         let pixel_sample = self.pixel00_loc
             + ((x as f32 + offset.x) * self.pixel_delta_u)
@@ -150,7 +151,7 @@ impl Camera {
             self.defocus_disk_sample(&mut rng)
         };
 
-        Ray3d::new(ray_origin, pixel_sample - ray_origin)
+        Ray::new(ray_origin, pixel_sample - ray_origin, rng.gen())
     }
 
     fn sample_square(mut rng: impl Rng) -> Vec3 {
