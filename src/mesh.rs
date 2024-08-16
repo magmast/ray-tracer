@@ -185,6 +185,80 @@ impl Mesh for Sphere {
     }
 }
 
+pub struct Quad {
+    translation: Vec3,
+    u: Vec3,
+    v: Vec3,
+    material: Arc<dyn Material + Sync + Send>,
+    bbox: Aabb,
+    normal: Vec3,
+    d: f32,
+    w: Vec3,
+}
+
+impl Quad {
+    pub fn new(
+        translation: Vec3,
+        u: Vec3,
+        v: Vec3,
+        material: Arc<dyn Material + Sync + Send>,
+    ) -> Self {
+        let bbox_diagonal1 = Aabb::from_extremes(translation, translation + u + v);
+        let bbox_diagonal2 = Aabb::from_extremes(translation + u, translation + v);
+
+        let n = u.cross(v);
+        let normal = n.normalize();
+
+        Self {
+            translation,
+            u,
+            v,
+            material,
+            bbox: bbox_diagonal1.merge(&bbox_diagonal2),
+            normal,
+            d: normal.dot(translation),
+            w: n / n.dot(n),
+        }
+    }
+
+    fn uv(&self, a: f32, b: f32) -> Option<Vec2> {
+        let unit_interval = Interval::from(0.0..1.);
+
+        if unit_interval.contains(a) && unit_interval.contains(b) {
+            Some(Vec2::new(a, b))
+        } else {
+            None
+        }
+    }
+}
+
+impl Mesh for Quad {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let denom = self.normal.dot(ray.direction);
+
+        if denom.abs() < 1e-8 {
+            return None;
+        }
+
+        let t = (self.d - self.normal.dot(ray.origin)) / denom;
+        if !ray_t.contains(t) {
+            return None;
+        }
+
+        let intersection = ray.get_point(t);
+        let planar_hitpt_vec = intersection - self.translation;
+        let alpha = self.w.dot(planar_hitpt_vec.cross(self.v));
+        let beta = self.w.dot(self.u.cross(planar_hitpt_vec));
+        let uv = self.uv(alpha, beta)?;
+
+        Some(Hit::new(ray, t, self.normal, self.material.clone(), uv))
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.bbox
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Aabb {
     x: Interval,
@@ -207,7 +281,20 @@ impl Index<usize> for Aabb {
 
 impl Aabb {
     pub fn new(x: Interval, y: Interval, z: Interval) -> Self {
-        Self { x, y, z }
+        Self {
+            x: Self::pad_to_minimus(x),
+            y: Self::pad_to_minimus(y),
+            z: Self::pad_to_minimus(z),
+        }
+    }
+
+    fn pad_to_minimus(interval: Interval) -> Interval {
+        let delta = 0.0001;
+        if interval.size() < delta {
+            interval.expand(delta)
+        } else {
+            interval
+        }
     }
 
     pub fn from_extremes(a: Vec3, b: Vec3) -> Self {

@@ -8,7 +8,7 @@ use rand::prelude::*;
 use ray_tracing::{
     camera::{Camera, CameraConfig},
     material::{Dielectric, Lambertian, Metal},
-    mesh::{Bvh, Sphere, World},
+    mesh::{Bvh, Quad, Sphere, World},
     texture::{CheckerTexture, ImageTexture, NoiseTexture, SolidTexture},
     utils::random_vec,
 };
@@ -175,8 +175,65 @@ fn perlin_spheres() -> ImageResult<(CameraConfig, World)> {
     ))
 }
 
+#[allow(unused)]
+fn quads() -> ImageResult<(CameraConfig, World)> {
+    let left_red = Lambertian::from_color(Color::linear_rgb(1., 0.2, 0.2));
+    let back_green = Lambertian::from_color(Color::linear_rgb(0.2, 1., 0.2));
+    let right_blue = Lambertian::from_color(Color::linear_rgb(0.2, 0.2, 1.));
+    let upper_orange = Lambertian::from_color(Color::linear_rgb(1., 0.5, 0.));
+    let lower_teal = Lambertian::from_color(Color::linear_rgb(0.2, 0.8, 0.8));
+
+    let mut world = World::new();
+    world.push(Quad::new(
+        Vec3::new(-3., -2., 5.),
+        Vec3::Z * -4.,
+        Vec3::Y * 4.,
+        left_red,
+    ));
+    world.push(Quad::new(
+        Vec3::new(-2., -2., 0.),
+        Vec3::X * 4.,
+        Vec3::Y * 4.,
+        back_green,
+    ));
+    world.push(Quad::new(
+        Vec3::new(3., -2., 1.),
+        Vec3::Z * 4.,
+        Vec3::Y * 4.,
+        right_blue,
+    ));
+    world.push(Quad::new(
+        Vec3::new(-2., 3., 1.),
+        Vec3::X * 4.,
+        Vec3::Z * 4.,
+        upper_orange,
+    ));
+    world.push(Quad::new(
+        Vec3::new(-2., -3., 5.),
+        Vec3::X * 4.,
+        Vec3::Z * -4.,
+        lower_teal,
+    ));
+
+    Ok((
+        CameraConfig {
+            width: IMAGE_WIDTH,
+            height: IMAGE_WIDTH,
+            samples_per_pixel: 100,
+            max_depth: 50,
+            vfov: 80.,
+            lookfrom: Vec3::Z * 9.,
+            lookat: Vec3::ZERO,
+            vup: Vec3::Y,
+            defocus_angle: 0.,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
 fn main() -> ImageResult<()> {
-    let (camera_config, world) = perlin_spheres()?;
+    let (camera_config, world) = quads()?;
     let bvh_world = Bvh::from(&world);
 
     let camera = Camera::new(camera_config);

@@ -79,4 +79,8 @@ impl Interval {
     pub fn clamp(&self, value: f32) -> f32 {
         value.clamp(self.start(), self.end())
     }
+
+    pub fn size(&self) -> f32 {
+        self.end() - self.start()
+    }
 }
