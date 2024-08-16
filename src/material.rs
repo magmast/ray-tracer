@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bevy_color::Color;
-use bevy_math::Vec3;
+use bevy_math::{Vec2, Vec3};
 
 use crate::{
     mesh::Hit,
@@ -29,6 +29,10 @@ fn refract(uv: Vec3, n: Vec3, etai_over_etat: f32) -> Vec3 {
 
 pub trait Material {
     fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter>;
+
+    fn emitted(&self, _uv: Vec2, _point: Vec3) -> Color {
+        Color::BLACK
+    }
 }
 
 pub struct Scatter {
@@ -124,5 +128,29 @@ impl Material for Dielectric {
             attenuation: Color::WHITE,
             scattered: Ray::new(hit.point, dir, r_in.time),
         })
+    }
+}
+
+pub struct DiffuseLight {
+    texture: Arc<dyn Texture + Send + Sync>,
+}
+
+impl DiffuseLight {
+    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
+        Arc::new(Self { texture })
+    }
+
+    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
+        Self::new(SolidTexture::new(color))
+    }
+}
+
+impl Material for DiffuseLight {
+    fn scatter(&self, _r_in: &Ray, _hit: &Hit) -> Option<Scatter> {
+        None
+    }
+
+    fn emitted(&self, uv: Vec2, point: Vec3) -> Color {
+        self.texture.value(uv, point)
     }
 }

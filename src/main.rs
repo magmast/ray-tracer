@@ -7,7 +7,7 @@ use image::{ImageFormat, ImageResult};
 use rand::prelude::*;
 use ray_tracing::{
     camera::{Camera, CameraConfig},
-    material::{Dielectric, Lambertian, Metal},
+    material::{Dielectric, DiffuseLight, Lambertian, Metal},
     mesh::{Bvh, Quad, Sphere, World},
     texture::{CheckerTexture, ImageTexture, NoiseTexture, SolidTexture},
     utils::random_vec,
@@ -232,8 +232,104 @@ fn quads() -> ImageResult<(CameraConfig, World)> {
     ))
 }
 
+#[allow(unused)]
+fn simple_light() -> ImageResult<(CameraConfig, World)> {
+    let pertext = Lambertian::new(NoiseTexture::<256>::new(rand::thread_rng(), 4.));
+    let difflight = DiffuseLight::from_color(Color::linear_rgb(4., 4., 4.));
+
+    let mut world = World::new();
+    world.push(Sphere::stationary(Vec3::Y * -1000., 1000., pertext.clone()));
+    world.push(Sphere::stationary(Vec3::Y * 2., 2., pertext));
+    world.push(Quad::new(
+        Vec3::new(3., 1., -2.),
+        Vec3::X * 2.,
+        Vec3::Y * 2.,
+        difflight.clone(),
+    ));
+    world.push(Sphere::stationary(Vec3::Y * 7., 2., difflight));
+
+    Ok((
+        CameraConfig {
+            width: IMAGE_WIDTH,
+            height: (IMAGE_WIDTH as f32 / ASPECT_RATIO) as u32,
+            samples_per_pixel: 500,
+            max_depth: 50,
+            background: Color::BLACK,
+            lookfrom: Vec3::new(26., 3., 6.),
+            lookat: Vec3::Y * 2.,
+            vup: Vec3::Y,
+            defocus_angle: 0.,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
+#[allow(unused)]
+fn cornell_box() -> ImageResult<(CameraConfig, World)> {
+    let red = Lambertian::from_color(Color::linear_rgb(0.65, 0.05, 0.05));
+    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
+    let green = Lambertian::from_color(Color::linear_rgb(0.12, 0.45, 0.15));
+    let light = DiffuseLight::from_color(Color::linear_rgb(15.0, 15.0, 15.0));
+
+    let mut world = World::new();
+    world.push(Quad::new(
+        Vec3::new(555.0, 0.0, 0.0),
+        Vec3::new(0.0, 555.0, 0.0),
+        Vec3::new(0.0, 0.0, 555.0),
+        green.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 555.0, 0.0),
+        Vec3::new(0.0, 0.0, 555.0),
+        red.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(343.0, 554.0, 332.0),
+        Vec3::new(-130.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, -105.0),
+        light.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(0.0, 0.0, 0.0),
+        Vec3::new(555.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 555.0),
+        white.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(555.0, 555.0, 555.0),
+        Vec3::new(-555.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, -555.0),
+        white.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(0.0, 0.0, 555.0),
+        Vec3::new(555.0, 0.0, 0.0),
+        Vec3::new(0.0, 555.0, 0.0),
+        white.clone(),
+    ));
+
+    Ok((
+        CameraConfig {
+            width: 600,
+            height: 600,
+            samples_per_pixel: 1000,
+            max_depth: 50,
+            background: Color::BLACK,
+            lookfrom: Vec3::new(278.0, 278.0, -800.0),
+            lookat: Vec3::new(278.0, 278.0, 0.0),
+            vup: Vec3::Y,
+            defocus_angle: 0.0,
+            vfov: 40.0,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
 fn main() -> ImageResult<()> {
-    let (camera_config, world) = quads()?;
+    let (camera_config, world) = cornell_box()?;
     let bvh_world = Bvh::from(&world);
 
     let camera = Camera::new(camera_config);

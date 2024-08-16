@@ -20,6 +20,7 @@ pub struct CameraConfig {
     pub vup: Vec3,
     pub defocus_angle: f32,
     pub focus_dist: f32,
+    pub background: Color,
 }
 
 impl Default for CameraConfig {
@@ -35,6 +36,7 @@ impl Default for CameraConfig {
             vup: Vec3::Y,
             defocus_angle: 0.,
             focus_dist: 10.,
+            background: Color::linear_rgb(0.7, 0.8, 1.),
         }
     }
 }
@@ -122,19 +124,25 @@ impl Camera {
         let color_vec = if depth <= 0 {
             Vec3::ZERO
         } else if let Some(hit) = world.hit(ray, &(0.001..f32::INFINITY).into()) {
+            let color_from_emission = hit
+                .material
+                .emitted(hit.uv, hit.point)
+                .to_linear()
+                .to_vec3();
+
             if let Some(scatter) = hit.material.scatter(ray, &hit) {
-                scatter.attenuation.to_linear().to_vec3()
+                let color_from_scatter = scatter.attenuation.to_linear().to_vec3()
                     * self
                         .ray_color(&scatter.scattered, world, depth - 1)
                         .to_linear()
-                        .to_vec3()
+                        .to_vec3();
+
+                color_from_scatter + color_from_emission
             } else {
-                Vec3::ZERO
+                color_from_emission
             }
         } else {
-            let unit_dir = ray.direction.normalize();
-            let a = 0.5 * (unit_dir.y + 1.);
-            (1. - a) * Vec3::new(1., 1., 1.) + a * Vec3::new(0.5, 0.7, 1.0)
+            self.config.background.to_linear().to_vec3()
         };
 
         Color::linear_rgb(color_vec.x, color_vec.y, color_vec.z)
