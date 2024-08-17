@@ -1,5 +1,5 @@
 use core::f32;
-use std::fs::File;
+use std::{fs::File, sync::Arc};
 
 use bevy_color::Color;
 use bevy_math::Vec3;
@@ -20,15 +20,14 @@ const IMAGE_WIDTH: u32 = 1920;
 fn bouncing_spheres() -> ImageResult<(CameraConfig, World)> {
     let mut world = World::new();
 
-    let ground_material = Lambertian::new(CheckerTexture::new(
-        0.32,
-        SolidTexture::new(Color::linear_rgb(0.2, 0.3, 0.1)),
-        SolidTexture::new(Color::linear_rgb(0.9, 0.9, 0.9)),
-    ));
     world.push(Sphere::stationary(
         Vec3::new(0., -1000., 0.),
         1000.,
-        ground_material,
+        Lambertian::from(CheckerTexture {
+            scale: 0.32,
+            even: SolidTexture::rgb(0.2, 0.3, 0.1),
+            odd: SolidTexture::rgb(0.9, 0.9, 0.9),
+        }),
     ));
 
     let mut rng = rand::thread_rng();
@@ -47,30 +46,42 @@ fn bouncing_spheres() -> ImageResult<(CameraConfig, World)> {
 
             if choose_mat < 0.8 {
                 let albedo = random_vec(&mut rng) * random_vec(&mut rng);
-                let albedo = Color::linear_rgb(albedo.x, albedo.y, albedo.z);
-                let sphere_material = Lambertian::from_color(albedo);
                 let to_center = center + Vec3::Y * rng.gen_range(0.0..0.5);
-                world.push(Sphere::moving(center, to_center, 0.2, sphere_material))
+                world.push(Sphere::moving(
+                    center,
+                    to_center,
+                    0.2,
+                    Lambertian::rgb(albedo.x, albedo.y, albedo.z),
+                ))
             } else if choose_mat < 0.95 {
                 let albedo = random_vec(&mut rng);
-                let albedo = Color::linear_rgb(albedo.x, albedo.y, albedo.z);
-                let fuzz = random();
-                let sphere_material = Metal::new(albedo, fuzz);
-                world.push(Sphere::stationary(center, 0.2, sphere_material))
+                world.push(Sphere::stationary(
+                    center,
+                    0.2,
+                    Metal::rgb(albedo.x, albedo.y, albedo.z).with_roughness(rng.gen()),
+                ))
             } else {
-                let material = Dielectric::new(1.5);
-                world.push(Sphere::stationary(center, 0.2, material));
+                world.push(Sphere::stationary(center, 0.2, Dielectric::default()));
             }
         });
 
-    let material1 = Dielectric::new(1.5);
-    world.push(Sphere::stationary(Vec3::new(0., 1., 0.), 1., material1));
+    world.push(Sphere::stationary(
+        Vec3::new(0., 1., 0.),
+        1.,
+        Dielectric::default(),
+    ));
 
-    let material2 = Lambertian::from_color(Color::linear_rgb(0.4, 0.2, 0.1));
-    world.push(Sphere::stationary(Vec3::new(-4., 1., 0.), 1., material2));
+    world.push(Sphere::stationary(
+        Vec3::new(-4., 1., 0.),
+        1.,
+        Lambertian::rgb(0.4, 0.2, 0.1),
+    ));
 
-    let material3 = Metal::new(Color::linear_rgb(0.7, 0.6, 0.5), 0.0);
-    world.push(Sphere::stationary(Vec3::new(4., 1., 0.), 1., material3));
+    world.push(Sphere::stationary(
+        Vec3::new(4., 1., 0.),
+        1.,
+        Metal::rgb(0.7, 0.6, 0.5).with_roughness(0.0),
+    ));
 
     Ok((
         CameraConfig {
@@ -94,11 +105,11 @@ fn bouncing_spheres() -> ImageResult<(CameraConfig, World)> {
 fn checkered_spheres() -> ImageResult<(CameraConfig, World)> {
     let mut world = World::new();
 
-    let checker = Lambertian::new(CheckerTexture::new(
-        0.32,
-        SolidTexture::new(Color::linear_rgb(0.2, 0.3, 0.1)),
-        SolidTexture::new(Color::linear_rgb(0.9, 0.9, 0.9)),
-    ));
+    let checker = Arc::new(Lambertian::from(CheckerTexture {
+        scale: 0.32,
+        even: SolidTexture::rgb(0.2, 0.3, 0.1),
+        odd: SolidTexture::rgb(0.9, 0.9, 0.9),
+    }));
 
     world.push(Sphere::stationary(Vec3::Y * -10., 10., checker.clone()));
     world.push(Sphere::stationary(Vec3::Y * 10., 10., checker));
@@ -123,7 +134,7 @@ fn checkered_spheres() -> ImageResult<(CameraConfig, World)> {
 #[allow(unused)]
 fn earth() -> ImageResult<(CameraConfig, World)> {
     let earth_texture = ImageTexture::open("images/earthmap.jpg")?;
-    let earth_surface = Lambertian::new(earth_texture);
+    let earth_surface = Lambertian::from(earth_texture);
 
     let mut world = World::new();
     world.push(Sphere::stationary(Vec3::ZERO, 8., earth_surface));
@@ -149,7 +160,7 @@ fn perlin_spheres() -> ImageResult<(CameraConfig, World)> {
     let mut world = World::new();
 
     let perlin = NoiseTexture::<256>::new(rand::thread_rng(), 4.);
-    let perlin_surface = Lambertian::new(perlin);
+    let perlin_surface = Arc::new(Lambertian::from(perlin));
 
     world.push(Sphere::stationary(
         Vec3::Y * -1000.,
@@ -177,42 +188,36 @@ fn perlin_spheres() -> ImageResult<(CameraConfig, World)> {
 
 #[allow(unused)]
 fn quads() -> ImageResult<(CameraConfig, World)> {
-    let left_red = Lambertian::from_color(Color::linear_rgb(1., 0.2, 0.2));
-    let back_green = Lambertian::from_color(Color::linear_rgb(0.2, 1., 0.2));
-    let right_blue = Lambertian::from_color(Color::linear_rgb(0.2, 0.2, 1.));
-    let upper_orange = Lambertian::from_color(Color::linear_rgb(1., 0.5, 0.));
-    let lower_teal = Lambertian::from_color(Color::linear_rgb(0.2, 0.8, 0.8));
-
     let mut world = World::new();
     world.push(Quad::new(
         Vec3::new(-3., -2., 5.),
         Vec3::Z * -4.,
         Vec3::Y * 4.,
-        left_red,
+        Lambertian::rgb(1., 0.2, 0.2),
     ));
     world.push(Quad::new(
         Vec3::new(-2., -2., 0.),
         Vec3::X * 4.,
         Vec3::Y * 4.,
-        back_green,
+        Lambertian::rgb(0.2, 1., 0.2),
     ));
     world.push(Quad::new(
         Vec3::new(3., -2., 1.),
         Vec3::Z * 4.,
         Vec3::Y * 4.,
-        right_blue,
+        Lambertian::rgb(0.2, 0.2, 1.),
     ));
     world.push(Quad::new(
         Vec3::new(-2., 3., 1.),
         Vec3::X * 4.,
         Vec3::Z * 4.,
-        upper_orange,
+        Lambertian::rgb(1., 0.5, 0.),
     ));
     world.push(Quad::new(
         Vec3::new(-2., -3., 5.),
         Vec3::X * 4.,
         Vec3::Z * -4.,
-        lower_teal,
+        Lambertian::rgb(0.2, 0.8, 0.8),
     ));
 
     Ok((
@@ -234,8 +239,11 @@ fn quads() -> ImageResult<(CameraConfig, World)> {
 
 #[allow(unused)]
 fn simple_light() -> ImageResult<(CameraConfig, World)> {
-    let pertext = Lambertian::new(NoiseTexture::<256>::new(rand::thread_rng(), 4.));
-    let difflight = DiffuseLight::from_color(Color::linear_rgb(4., 4., 4.));
+    let pertext = Arc::new(Lambertian::from(NoiseTexture::<256>::new(
+        rand::thread_rng(),
+        4.,
+    )));
+    let difflight = Arc::new(DiffuseLight::rgb(4., 4., 4.));
 
     let mut world = World::new();
     world.push(Sphere::stationary(Vec3::Y * -1000., 1000., pertext.clone()));
@@ -267,29 +275,26 @@ fn simple_light() -> ImageResult<(CameraConfig, World)> {
 
 #[allow(unused)]
 fn cornell_box() -> ImageResult<(CameraConfig, World)> {
-    let red = Lambertian::from_color(Color::linear_rgb(0.65, 0.05, 0.05));
-    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
-    let green = Lambertian::from_color(Color::linear_rgb(0.12, 0.45, 0.15));
-    let light = DiffuseLight::from_color(Color::linear_rgb(15.0, 15.0, 15.0));
+    let white = Arc::new(Lambertian::rgb(0.73, 0.73, 0.73));
 
     let mut world = World::new();
     world.push(Quad::new(
         Vec3::X * 555.,
         Vec3::Y * 555.,
         Vec3::Z * 555.,
-        green.clone(),
+        Lambertian::rgb(0.12, 0.45, 0.15),
     ));
     world.push(Quad::new(
         Vec3::ZERO,
         Vec3::Y * 555.,
         Vec3::Z * 555.,
-        red.clone(),
+        Lambertian::rgb(0.65, 0.05, 0.05),
     ));
     world.push(Quad::new(
         Vec3::new(343., 554., 332.),
         Vec3::X * -130.0,
         Vec3::Z * -105.0,
-        light.clone(),
+        DiffuseLight::rgb(15.0, 15.0, 15.0),
     ));
     world.push(Quad::new(
         Vec3::ZERO,
@@ -319,7 +324,7 @@ fn cornell_box() -> ImageResult<(CameraConfig, World)> {
     ));
     world.push(Translate::new(
         RotateY::new(
-            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white.clone()),
+            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white),
             -18.,
         ),
         Vec3::new(130., 0., 65.),
@@ -345,29 +350,26 @@ fn cornell_box() -> ImageResult<(CameraConfig, World)> {
 
 #[allow(unused)]
 fn cornell_smoke() -> ImageResult<(CameraConfig, World)> {
-    let red = Lambertian::from_color(Color::linear_rgb(0.65, 0.05, 0.05));
-    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
-    let green = Lambertian::from_color(Color::linear_rgb(0.12, 0.45, 0.15));
-    let light = DiffuseLight::from_color(Color::linear_rgb(7., 7., 7.));
+    let white = Arc::new(Lambertian::rgb(0.73, 0.73, 0.73));
 
     let mut world = World::new();
     world.push(Quad::new(
         Vec3::X * 555.,
         Vec3::Y * 555.,
         Vec3::Z * 555.,
-        green.clone(),
+        Lambertian::rgb(0.12, 0.45, 0.15),
     ));
     world.push(Quad::new(
         Vec3::ZERO,
         Vec3::Y * 555.,
         Vec3::Z * 555.,
-        red.clone(),
+        Lambertian::rgb(0.65, 0.05, 0.05),
     ));
     world.push(Quad::new(
         Vec3::new(113., 554., 127.),
         Vec3::X * 330.0,
         Vec3::Z * 305.0,
-        light.clone(),
+        DiffuseLight::rgb(7., 7., 7.),
     ));
     world.push(Quad::new(
         Vec3::ZERO,
@@ -399,7 +401,7 @@ fn cornell_smoke() -> ImageResult<(CameraConfig, World)> {
 
     let box2 = Translate::new(
         RotateY::new(
-            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white.clone()),
+            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white),
             -18.,
         ),
         Vec3::new(130., 0., 65.),
@@ -427,7 +429,7 @@ fn cornell_smoke() -> ImageResult<(CameraConfig, World)> {
 #[allow(unused)]
 fn final_scene() -> ImageResult<(CameraConfig, World)> {
     let mut boxes1 = World::new();
-    let ground = Lambertian::from_color(Color::linear_rgb(0.48, 0.83, 0.53));
+    let ground = Arc::new(Lambertian::rgb(0.48, 0.83, 0.53));
 
     let mut rng = rand::thread_rng();
 
@@ -452,17 +454,16 @@ fn final_scene() -> ImageResult<(CameraConfig, World)> {
     let mut world = World::new();
     world.push(Bvh::from(boxes1));
 
-    let light = DiffuseLight::from_color(Color::linear_rgb(7., 7., 7.));
     world.push(Quad::new(
         Vec3::new(123., 554., 147.),
         Vec3::X * 300.,
         Vec3::Z * 265.,
-        light.clone(),
+        DiffuseLight::rgb(7., 7., 7.),
     ));
 
     let center1 = Vec3::new(400., 400., 200.);
     let center2 = center1 + Vec3::X * 30.;
-    let sphere_material = Lambertian::from_color(Color::linear_rgb(0.7, 0.3, 0.1));
+    let sphere_material = Lambertian::rgb(0.7, 0.3, 0.1);
     world.push(Sphere::moving(center1, center2, 50., sphere_material));
 
     world.push(Sphere::stationary(
@@ -473,7 +474,7 @@ fn final_scene() -> ImageResult<(CameraConfig, World)> {
     world.push(Sphere::stationary(
         Vec3::new(0., 150., 145.),
         50.,
-        Metal::new(Color::linear_rgb(0.8, 0.8, 0.9), 1.),
+        Metal::rgb(0.8, 0.8, 0.9).with_roughness(1.),
     ));
 
     let boundary = Sphere::stationary(Vec3::new(360., 150., 145.), 70., Dielectric::new(1.5));
@@ -486,18 +487,17 @@ fn final_scene() -> ImageResult<(CameraConfig, World)> {
     let boundary = Sphere::stationary(Vec3::ZERO, 5000., Dielectric::new(1.5));
     world.push(ConstantMedium::from_color(boundary, 0.0001, Color::WHITE));
 
-    let emat = Lambertian::new(ImageTexture::open("images/earthmap.jpg")?);
+    let emat = Lambertian::from(ImageTexture::open("images/earthmap.jpg")?);
     world.push(Sphere::stationary(Vec3::new(400., 200., 400.), 100., emat));
 
     let pertext = NoiseTexture::<256>::new(&mut rng, 0.2);
     world.push(Sphere::stationary(
         Vec3::new(220., 280., 300.),
         80.,
-        Lambertian::new(pertext),
+        Lambertian::from(pertext),
     ));
 
     let mut boxes2 = World::new();
-    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
     let ns = 1000;
     for i in 0..ns {
         boxes2.push(Sphere::stationary(
@@ -507,7 +507,7 @@ fn final_scene() -> ImageResult<(CameraConfig, World)> {
                 rng.gen_range(0.0..165.),
             ),
             10.,
-            white.clone(),
+            Lambertian::rgb(0.73, 0.73, 0.73),
         ));
     }
 
@@ -535,7 +535,7 @@ fn final_scene() -> ImageResult<(CameraConfig, World)> {
 }
 
 fn main() -> ImageResult<()> {
-    let (camera_config, world) = cornell_smoke()?;
+    let (camera_config, world) = bouncing_spheres()?;
     let bvh_world = Bvh::from(&world);
 
     let camera = Camera::new(camera_config);

@@ -44,6 +44,22 @@ impl From<Range<f32>> for Interval {
     }
 }
 
+impl Add<f32> for &Interval {
+    type Output = Interval;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        Interval(self.start() + rhs..self.end() + rhs)
+    }
+}
+
+impl Add<f32> for Interval {
+    type Output = Interval;
+
+    fn add(self, rhs: f32) -> Self::Output {
+        &self + rhs
+    }
+}
+
 impl Interval {
     const UNIVERSE: Self = Self(f32::NEG_INFINITY..f32::INFINITY);
 
@@ -84,21 +100,5 @@ impl Interval {
 
     pub fn size(&self) -> f32 {
         self.end() - self.start()
-    }
-}
-
-impl Add<f32> for &Interval {
-    type Output = Interval;
-
-    fn add(self, rhs: f32) -> Self::Output {
-        Interval(self.start() + rhs..self.end() + rhs)
-    }
-}
-
-impl Add<f32> for Interval {
-    type Output = Interval;
-
-    fn add(self, rhs: f32) -> Self::Output {
-        &self + rhs
     }
 }

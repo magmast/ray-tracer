@@ -1,4 +1,4 @@
-use bevy_color::{Color, ColorToComponents as _, ColorToPacked};
+use bevy_color::{Color, ColorToComponents as _, ColorToPacked, LinearRgba, Srgba};
 use bevy_math::Vec3;
 use image::{Rgb, RgbImage};
 use indicatif::ProgressBar;
@@ -95,13 +95,10 @@ impl Camera {
         }
     }
 
-    pub fn render(&self, world: &(impl Mesh + Sync)) -> RgbImage {
+    pub fn render(&self, mesh: &(impl Mesh + Sync)) -> RgbImage {
         let bar = ProgressBar::new(self.config.width as u64 * self.config.height as u64);
         let image = RgbImage::from_par_fn(self.config.width, self.config.height, |x, y| {
-            let rgb = Rgb(self
-                .render_pixel(world, x, y)
-                .to_srgba()
-                .to_u8_array_no_alpha());
+            let rgb = Rgb(Srgba::from(self.render_pixel(mesh, x, y)).to_u8_array_no_alpha());
             bar.inc(1);
             rgb
         });
@@ -109,38 +106,31 @@ impl Camera {
         image
     }
 
-    fn render_pixel(&self, world: &impl Mesh, x: u32, y: u32) -> Color {
+    fn render_pixel(&self, world: &impl Mesh, x: u32, y: u32) -> LinearRgba {
         let mut rng = rand::thread_rng();
 
         let color: Vec3 = (0..self.config.samples_per_pixel)
             .map(|_| {
                 let ray = self.get_ray(&mut rng, x, y);
-                self.ray_color(&ray, world, self.config.max_depth)
-                    .to_linear()
-                    .to_vec3()
+                self.ray_color(&ray, world, self.config.max_depth).to_vec3()
             })
             .sum();
 
         let color = self.pixel_samples_scale * color;
 
-        Color::linear_rgb(color.x, color.y, color.z)
+        LinearRgba::rgb(color.x, color.y, color.z)
     }
 
-    fn ray_color(&self, ray: &Ray, world: &impl Mesh, depth: usize) -> Color {
+    fn ray_color(&self, ray: &Ray, world: &impl Mesh, depth: usize) -> LinearRgba {
         let color_vec = if depth <= 0 {
             Vec3::ZERO
         } else if let Some(hit) = world.hit(ray, &(0.001..f32::INFINITY).into()) {
-            let color_from_emission = hit
-                .material
-                .emitted(hit.uv, hit.point)
-                .to_linear()
-                .to_vec3();
+            let color_from_emission = hit.material.emitted(hit.uv, hit.point).to_vec3();
 
             if let Some(scatter) = hit.material.scatter(ray, &hit) {
-                let color_from_scatter = scatter.attenuation.to_linear().to_vec3()
+                let color_from_scatter = scatter.attenuation.to_vec3()
                     * self
                         .ray_color(&scatter.scattered, world, depth - 1)
-                        .to_linear()
                         .to_vec3();
 
                 color_from_scatter + color_from_emission
@@ -151,7 +141,7 @@ impl Camera {
             self.config.background.to_linear().to_vec3()
         };
 
-        Color::linear_rgb(color_vec.x, color_vec.y, color_vec.z)
+        LinearRgba::rgb(color_vec.x, color_vec.y, color_vec.z)
     }
 
     fn get_ray(&self, mut rng: impl Rng, x: u32, y: u32) -> Ray {

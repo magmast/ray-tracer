@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bevy_color::Color;
+use bevy_color::{Color, LinearRgba};
 use bevy_math::{Vec2, Vec3};
 
 use crate::{
@@ -28,65 +28,88 @@ fn refract(uv: Vec3, n: Vec3, etai_over_etat: f32) -> Vec3 {
 }
 
 pub trait Material {
-    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter>;
+    fn scatter(&self, ray: &Ray, hit: &Hit) -> Option<Scatter>;
 
-    fn emitted(&self, _uv: Vec2, _point: Vec3) -> Color {
-        Color::BLACK
+    fn emitted(&self, _uv: Vec2, _point: Vec3) -> LinearRgba {
+        LinearRgba::BLACK
+    }
+}
+
+impl<T: Material> Material for Arc<T> {
+    fn scatter(&self, ray: &Ray, hit: &Hit) -> Option<Scatter> {
+        self.as_ref().scatter(ray, hit)
+    }
+
+    fn emitted(&self, uv: Vec2, point: Vec3) -> LinearRgba {
+        self.as_ref().emitted(uv, point)
     }
 }
 
 pub struct Scatter {
-    pub attenuation: Color,
+    pub attenuation: LinearRgba,
     pub scattered: Ray,
 }
 
-pub struct Lambertian {
-    texture: Arc<dyn Texture + Send + Sync>,
+#[derive(Default)]
+pub struct Lambertian<T: Texture> {
+    pub texture: T,
 }
 
-impl Lambertian {
-    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Self { texture })
-    }
-
-    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
-        Self::new(SolidTexture::new(color))
+impl<T: Texture> From<T> for Lambertian<T> {
+    fn from(texture: T) -> Self {
+        Self { texture }
     }
 }
 
-impl Material for Lambertian {
-    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
-        let rng = rand::thread_rng();
-        let mut scatter_dir = hit.normal + random_unit_vec(rng);
-        if near_zero(scatter_dir) {
-            scatter_dir = hit.normal;
-        }
+impl From<Color> for Lambertian<SolidTexture> {
+    fn from(value: Color) -> Self {
+        Self::from(SolidTexture::from(value))
+    }
+}
+
+impl<T: Texture> Material for Lambertian<T> {
+    fn scatter(&self, ray: &Ray, hit: &Hit) -> Option<Scatter> {
+        let scatter_dir = self.scatter_direction(hit);
         Some(Scatter {
             attenuation: self.texture.value(hit.uv, hit.point),
-            scattered: Ray::new(hit.point, scatter_dir, r_in.time),
+            scattered: Ray::new(hit.point, scatter_dir, ray.time),
         })
     }
 }
 
-pub struct Metal {
-    albedo: Color,
-    fuzz: f32,
-}
-
-impl Metal {
-    pub fn new(albedo: Color, fuzz: f32) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Metal { albedo, fuzz })
+impl Lambertian<SolidTexture> {
+    pub fn rgb(red: f32, green: f32, blue: f32) -> Self {
+        Self::from(Color::linear_rgb(red, green, blue))
     }
 }
 
-impl Material for Metal {
-    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
+impl<T: Texture> Lambertian<T> {
+    fn scatter_direction(&self, hit: &Hit) -> Vec3 {
         let rng = rand::thread_rng();
-        let reflected = reflect(r_in.direction, hit.normal) + (self.fuzz * random_unit_vec(rng));
-        let scattered = Ray::new(hit.point, reflected, r_in.time);
+        let dir = hit.normal + random_unit_vec(rng);
+        if near_zero(dir) {
+            hit.normal
+        } else {
+            dir
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Metal<T: Texture> {
+    pub texture: T,
+    pub roughness: f32,
+}
+
+impl<T: Texture> Material for Metal<T> {
+    fn scatter(&self, ray: &Ray, hit: &Hit) -> Option<Scatter> {
+        let rng = rand::thread_rng();
+        let reflected =
+            reflect(ray.direction, hit.normal) + (self.roughness * random_unit_vec(rng));
+        let scattered = Ray::new(hit.point, reflected, ray.time);
         if scattered.direction.dot(hit.normal) > 0. {
             Some(Scatter {
-                attenuation: self.albedo,
+                attenuation: self.texture.value(hit.uv, hit.point),
                 scattered,
             })
         } else {
@@ -95,13 +118,31 @@ impl Material for Metal {
     }
 }
 
-pub struct Dielectric {
-    refraction_index: f32,
+impl<T: Texture> Metal<T> {
+    pub fn new(texture: T, roughness: f32) -> Self {
+        Self { texture, roughness }
+    }
+
+    pub fn with_roughness(self, roughness: f32) -> Self {
+        Self { roughness, ..self }
+    }
 }
 
-impl Dielectric {
-    pub fn new(refraction_index: f32) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Dielectric { refraction_index })
+impl Metal<SolidTexture> {
+    pub fn rgb(red: f32, green: f32, blue: f32) -> Self {
+        Self::new(SolidTexture::from(Color::linear_rgb(red, green, blue)), 0.0)
+    }
+}
+
+pub struct Dielectric {
+    pub refraction_index: f32,
+}
+
+impl Default for Dielectric {
+    fn default() -> Self {
+        Self {
+            refraction_index: 1.5,
+        }
     }
 }
 
@@ -125,57 +166,81 @@ impl Material for Dielectric {
         };
 
         Some(Scatter {
-            attenuation: Color::WHITE,
+            attenuation: LinearRgba::WHITE,
             scattered: Ray::new(hit.point, dir, r_in.time),
         })
     }
 }
 
-pub struct DiffuseLight {
-    texture: Arc<dyn Texture + Send + Sync>,
-}
-
-impl DiffuseLight {
-    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Self { texture })
-    }
-
-    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
-        Self::new(SolidTexture::new(color))
+impl Dielectric {
+    pub fn new(refraction_index: f32) -> Self {
+        Self { refraction_index }
     }
 }
 
-impl Material for DiffuseLight {
-    fn scatter(&self, _r_in: &Ray, _hit: &Hit) -> Option<Scatter> {
+#[derive(Default)]
+pub struct DiffuseLight<T: Texture> {
+    pub texture: T,
+}
+
+impl<T: Texture> From<T> for DiffuseLight<T> {
+    fn from(texture: T) -> Self {
+        Self { texture }
+    }
+}
+
+impl From<Color> for DiffuseLight<SolidTexture> {
+    fn from(value: Color) -> Self {
+        Self::from(SolidTexture::from(value))
+    }
+}
+
+impl<T: Texture> Material for DiffuseLight<T> {
+    fn scatter(&self, _ray: &Ray, _hit: &Hit) -> Option<Scatter> {
         None
     }
 
-    fn emitted(&self, uv: Vec2, point: Vec3) -> Color {
+    fn emitted(&self, uv: Vec2, point: Vec3) -> LinearRgba {
         self.texture.value(uv, point)
     }
 }
 
-pub struct Isotropic {
-    texture: Arc<dyn Texture + Send + Sync>,
-}
-
-impl Isotropic {
-    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
-        Arc::new(Self { texture })
-    }
-
-    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
-        Self::new(SolidTexture::new(color))
+impl DiffuseLight<SolidTexture> {
+    pub fn rgb(red: f32, green: f32, blue: f32) -> Self {
+        Self::from(Color::linear_rgb(red, green, blue))
     }
 }
 
-impl Material for Isotropic {
-    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
+#[derive(Default)]
+pub struct Isotropic<T: Texture> {
+    pub texture: T,
+}
+
+impl<T: Texture> From<T> for Isotropic<T> {
+    fn from(texture: T) -> Self {
+        Self { texture }
+    }
+}
+
+impl From<Color> for Isotropic<SolidTexture> {
+    fn from(value: Color) -> Self {
+        Self::from(SolidTexture::from(value))
+    }
+}
+
+impl<T: Texture> Material for Isotropic<T> {
+    fn scatter(&self, ray: &Ray, hit: &Hit) -> Option<Scatter> {
         let rng = rand::thread_rng();
 
         Some(Scatter {
-            scattered: Ray::new(hit.point, random_unit_vec(rng), r_in.time),
+            scattered: Ray::new(hit.point, random_unit_vec(rng), ray.time),
             attenuation: self.texture.value(hit.uv, hit.point),
         })
+    }
+}
+
+impl Isotropic<SolidTexture> {
+    pub fn rgb(red: f32, green: f32, blue: f32) -> Self {
+        Self::from(Color::linear_rgb(red, green, blue))
     }
 }

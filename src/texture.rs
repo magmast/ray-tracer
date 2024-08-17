@@ -1,52 +1,66 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
-use bevy_color::Color;
+use bevy_color::{Color, LinearRgba};
 use bevy_math::{Vec2, Vec3};
-use image::{ImageResult, RgbImage};
+use image::{DynamicImage, GenericImageView as _, ImageResult};
 use rand::Rng;
 
 use crate::Interval;
 
 pub trait Texture {
-    fn value(&self, uv: Vec2, point: Vec3) -> Color;
+    fn value(&self, uv: Vec2, point: Vec3) -> LinearRgba;
 }
 
-pub struct SolidTexture(Color);
+pub struct SolidTexture {
+    pub albedo: LinearRgba,
+}
 
-impl SolidTexture {
-    pub fn new(color: Color) -> Arc<dyn Texture + Send + Sync> {
-        Arc::new(SolidTexture(color))
+impl Default for SolidTexture {
+    fn default() -> Self {
+        Self {
+            albedo: LinearRgba::WHITE,
+        }
+    }
+}
+
+impl From<Color> for SolidTexture {
+    fn from(albedo: Color) -> Self {
+        Self {
+            albedo: albedo.to_linear(),
+        }
     }
 }
 
 impl Texture for SolidTexture {
-    fn value(&self, _uv: Vec2, _point: Vec3) -> Color {
-        self.0
+    fn value(&self, _uv: Vec2, _point: Vec3) -> LinearRgba {
+        self.albedo
     }
 }
 
-pub struct CheckerTexture {
-    scale: f32,
-    even: Arc<dyn Texture + Send + Sync>,
-    odd: Arc<dyn Texture + Send + Sync>,
-}
-
-impl CheckerTexture {
-    pub fn new(
-        scale: f32,
-        even: Arc<dyn Texture + Send + Sync>,
-        odd: Arc<dyn Texture + Send + Sync>,
-    ) -> Arc<dyn Texture + Send + Sync> {
-        Arc::new(Self {
-            scale: 1.0 / scale,
-            even,
-            odd,
-        })
+impl SolidTexture {
+    pub fn rgb(red: f32, green: f32, blue: f32) -> Self {
+        Self::from(Color::linear_rgb(red, green, blue))
     }
 }
 
-impl Texture for CheckerTexture {
-    fn value(&self, uv: Vec2, point: Vec3) -> Color {
+pub struct CheckerTexture<E: Texture, O: Texture> {
+    pub scale: f32,
+    pub even: E,
+    pub odd: O,
+}
+
+impl Default for CheckerTexture<SolidTexture, SolidTexture> {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            even: SolidTexture::rgb(0.2, 0.3, 0.1),
+            odd: SolidTexture::rgb(0.9, 0.9, 0.9),
+        }
+    }
+}
+
+impl<E: Texture, O: Texture> Texture for CheckerTexture<E, O> {
+    fn value(&self, uv: Vec2, point: Vec3) -> LinearRgba {
         let x = (point.x * self.scale).floor() as i32;
         let y = (point.y * self.scale).floor() as i32;
         let z = (point.z * self.scale).floor() as i32;
@@ -60,23 +74,30 @@ impl Texture for CheckerTexture {
     }
 }
 
+impl<E: Texture, O: Texture> CheckerTexture<E, O> {
+    pub fn with_scale(self, scale: f32) -> Self {
+        Self { scale, ..self }
+    }
+}
+
 pub struct ImageTexture {
-    image: RgbImage,
+    pub image: DynamicImage,
+}
+
+impl From<DynamicImage> for ImageTexture {
+    fn from(image: DynamicImage) -> Self {
+        Self { image }
+    }
 }
 
 impl ImageTexture {
-    pub fn new(image: RgbImage) -> Arc<dyn Texture + Send + Sync> {
-        Arc::new(Self { image })
-    }
-
-    pub fn open(path: impl AsRef<Path>) -> ImageResult<Arc<dyn Texture + Send + Sync>> {
-        let image = image::open(path)?.to_rgb8();
-        Ok(Arc::new(Self { image }))
+    pub fn open(path: impl AsRef<Path>) -> ImageResult<Self> {
+        image::open(path).map(Self::from)
     }
 }
 
 impl Texture for ImageTexture {
-    fn value(&self, uv: Vec2, _point: Vec3) -> Color {
+    fn value(&self, uv: Vec2, _point: Vec3) -> LinearRgba {
         let u = Interval::from(0.0..1.).clamp(uv.x);
         let v = 1. - Interval::from(0.0..1.).clamp(uv.y);
 
@@ -85,7 +106,7 @@ impl Texture for ImageTexture {
         let pixel = self.image.get_pixel(i, j);
 
         let color_scale = 1. / 255.;
-        Color::linear_rgb(
+        LinearRgba::rgb(
             pixel[0] as f32 * color_scale,
             pixel[1] as f32 * color_scale,
             pixel[2] as f32 * color_scale,
@@ -99,20 +120,20 @@ pub struct NoiseTexture<const N: usize = 256> {
 }
 
 impl<const N: usize> NoiseTexture<N> {
-    pub fn new(rng: impl Rng, scale: f32) -> Arc<dyn Texture + Send + Sync> {
-        Arc::new(Self {
+    pub fn new(rng: impl Rng, scale: f32) -> Self {
+        Self {
             perlin: Perlin::new(rng),
             scale,
-        })
+        }
     }
 }
 
 impl<const N: usize> Texture for NoiseTexture<N> {
-    fn value(&self, _uv: Vec2, point: Vec3) -> Color {
+    fn value(&self, _uv: Vec2, point: Vec3) -> LinearRgba {
         let color = Vec3::ONE
             * 0.5
             * (1. + (self.scale * point.z + 10. * self.perlin.turb(point, 7)).sin());
-        Color::linear_rgb(color.x, color.y, color.z)
+        LinearRgba::rgb(color.x, color.y, color.z)
     }
 }
 

@@ -20,21 +20,21 @@ pub trait Mesh {
     fn bounding_box(&self) -> &Aabb;
 }
 
-pub struct Hit {
+pub struct Hit<'a> {
     pub point: Vec3,
     pub normal: Vec3,
     pub distance: f32,
     pub front_face: bool,
-    pub material: Arc<dyn Material>,
+    pub material: &'a dyn Material,
     pub uv: Vec2,
 }
 
-impl Hit {
+impl<'a> Hit<'a> {
     pub fn new(
         ray: &Ray,
         distance: f32,
         normal: Vec3,
-        material: Arc<dyn Material>,
+        material: &'a dyn Material,
         uv: Vec2,
     ) -> Self {
         let front_face = ray.direction.dot(normal) < 0.;
@@ -54,20 +54,6 @@ impl Hit {
 pub struct World {
     meshes: Vec<Arc<dyn Mesh + Sync + Send>>,
     bbox: Aabb,
-}
-
-impl World {
-    pub fn new() -> Self {
-        Self {
-            meshes: Vec::new(),
-            bbox: Aabb::default(),
-        }
-    }
-
-    pub fn push(&mut self, mesh: impl Mesh + Sync + Send + 'static) {
-        self.bbox = self.bbox.merge(&mesh.bounding_box());
-        self.meshes.push(Arc::new(mesh));
-    }
 }
 
 impl AsRef<[Arc<dyn Mesh + Sync + Send>]> for World {
@@ -100,21 +86,65 @@ impl Mesh for World {
     }
 }
 
+impl World {
+    pub fn new() -> Self {
+        Self {
+            meshes: Vec::new(),
+            bbox: Aabb::default(),
+        }
+    }
+
+    pub fn push(&mut self, mesh: impl Mesh + Sync + Send + 'static) {
+        self.bbox = self.bbox.merge(&mesh.bounding_box());
+        self.meshes.push(Arc::new(mesh));
+    }
+}
+
 #[derive(Clone)]
-pub struct Sphere {
+pub struct Sphere<M: Material> {
     initial_center: Vec3,
     center_delta: Vec3,
     radius: f32,
-    material: Arc<dyn Material + Sync + Send>,
+    material: M,
     bbox: Aabb,
 }
 
-impl Sphere {
-    pub fn stationary(
-        center: Vec3,
-        radius: f32,
-        material: Arc<dyn Material + Sync + Send>,
-    ) -> Self {
+impl<M: Material> Mesh for Sphere<M> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let center = self.center(ray.time);
+        let oc = center - ray.origin;
+        let a = ray.direction.length_squared();
+        let h = ray.direction.dot(oc);
+        let c = oc.length_squared() - self.radius * self.radius;
+
+        let discriminant = h * h - a * c;
+        if discriminant < 0. {
+            return None;
+        }
+
+        let sqrtd = discriminant.sqrt();
+
+        let mut root = (h - sqrtd) / a;
+        if !ray_t.contains(root) {
+            root = (h + sqrtd) / a;
+            if !ray_t.contains(root) {
+                return None;
+            }
+        }
+
+        let point = ray.get_point(root);
+        let normal = (point - center) / self.radius;
+        let uv = self.uv(normal);
+        Some(Hit::new(ray, root, normal, &self.material, uv))
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.bbox
+    }
+}
+
+impl<M: Material> Sphere<M> {
+    pub fn stationary(center: Vec3, radius: f32, material: M) -> Self {
         assert!(radius >= 0., "Radius cannot be less than 0.");
 
         let rvec = Vec3::new(radius, radius, radius);
@@ -128,12 +158,7 @@ impl Sphere {
         }
     }
 
-    pub fn moving(
-        from: Vec3,
-        to: Vec3,
-        radius: f32,
-        material: Arc<dyn Material + Sync + Send>,
-    ) -> Self {
+    pub fn moving(from: Vec3, to: Vec3, radius: f32, material: M) -> Self {
         assert!(radius >= 0., "Radius cannot be less than 0.");
 
         let rvec = Vec3::new(radius, radius, radius);
@@ -162,33 +187,37 @@ impl Sphere {
     }
 }
 
-impl Mesh for Sphere {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
-        let center = self.center(ray.time);
-        let oc = center - ray.origin;
-        let a = ray.direction.length_squared();
-        let h = ray.direction.dot(oc);
-        let c = oc.length_squared() - self.radius * self.radius;
+pub struct Quad<M: Material> {
+    translation: Vec3,
+    u: Vec3,
+    v: Vec3,
+    material: M,
+    bbox: Aabb,
+    normal: Vec3,
+    d: f32,
+    w: Vec3,
+}
 
-        let discriminant = h * h - a * c;
-        if discriminant < 0. {
+impl<M: Material> Mesh for Quad<M> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let denom = self.normal.dot(ray.direction);
+
+        if denom.abs() < 1e-8 {
             return None;
         }
 
-        let sqrtd = discriminant.sqrt();
-
-        let mut root = (h - sqrtd) / a;
-        if !ray_t.contains(root) {
-            root = (h + sqrtd) / a;
-            if !ray_t.contains(root) {
-                return None;
-            }
+        let t = (self.d - self.normal.dot(ray.origin)) / denom;
+        if !ray_t.contains(t) {
+            return None;
         }
 
-        let point = ray.get_point(root);
-        let normal = (point - center) / self.radius;
-        let uv = self.uv(normal);
-        Some(Hit::new(ray, root, normal, self.material.clone(), uv))
+        let intersection = ray.get_point(t);
+        let planar_hitpt_vec = intersection - self.translation;
+        let alpha = self.w.dot(planar_hitpt_vec.cross(self.v));
+        let beta = self.w.dot(self.u.cross(planar_hitpt_vec));
+        let uv = self.uv(alpha, beta)?;
+
+        Some(Hit::new(ray, t, self.normal, &self.material, uv))
     }
 
     fn bounding_box(&self) -> &Aabb {
@@ -196,24 +225,8 @@ impl Mesh for Sphere {
     }
 }
 
-pub struct Quad {
-    translation: Vec3,
-    u: Vec3,
-    v: Vec3,
-    material: Arc<dyn Material + Sync + Send>,
-    bbox: Aabb,
-    normal: Vec3,
-    d: f32,
-    w: Vec3,
-}
-
-impl Quad {
-    pub fn new(
-        translation: Vec3,
-        u: Vec3,
-        v: Vec3,
-        material: Arc<dyn Material + Sync + Send>,
-    ) -> Self {
+impl<M: Material> Quad<M> {
+    pub fn new(translation: Vec3, u: Vec3, v: Vec3, material: M) -> Self {
         let bbox_diagonal1 = Aabb::from_extremes(translation, translation + u + v);
         let bbox_diagonal2 = Aabb::from_extremes(translation + u, translation + v);
 
@@ -243,43 +256,28 @@ impl Quad {
     }
 }
 
-impl Mesh for Quad {
+pub struct Cube(World);
+
+impl Mesh for Cube {
     fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
-        let denom = self.normal.dot(ray.direction);
-
-        if denom.abs() < 1e-8 {
-            return None;
-        }
-
-        let t = (self.d - self.normal.dot(ray.origin)) / denom;
-        if !ray_t.contains(t) {
-            return None;
-        }
-
-        let intersection = ray.get_point(t);
-        let planar_hitpt_vec = intersection - self.translation;
-        let alpha = self.w.dot(planar_hitpt_vec.cross(self.v));
-        let beta = self.w.dot(self.u.cross(planar_hitpt_vec));
-        let uv = self.uv(alpha, beta)?;
-
-        Some(Hit::new(ray, t, self.normal, self.material.clone(), uv))
+        self.0.hit(ray, ray_t)
     }
 
     fn bounding_box(&self) -> &Aabb {
-        &self.bbox
+        &self.0.bbox
     }
 }
 
-pub struct Cube(World);
-
 impl Cube {
-    pub fn new(a: Vec3, b: Vec3, material: Arc<dyn Material + Sync + Send>) -> Self {
+    pub fn new(a: Vec3, b: Vec3, material: impl Material + Sync + Send + 'static) -> Self {
         let min = Vec3::new(a.x.min(b.x), a.y.min(b.y), a.z.min(b.z));
         let max = Vec3::new(a.x.max(b.x), a.y.max(b.y), a.z.max(b.z));
 
         let dx = Vec3::X * (max.x - min.x);
         let dy = Vec3::Y * (max.y - min.y);
         let dz = Vec3::Z * (max.z - min.z);
+
+        let material = Arc::new(material);
 
         let mut world = World::new();
         world.push(Quad::new(
@@ -323,30 +321,10 @@ impl Cube {
     }
 }
 
-impl Mesh for Cube {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
-        self.0.hit(ray, ray_t)
-    }
-
-    fn bounding_box(&self) -> &Aabb {
-        &self.0.bbox
-    }
-}
-
 pub struct Translate<T: Mesh> {
     bbox: Aabb,
     offset: Vec3,
     object: T,
-}
-
-impl<T: Mesh> Translate<T> {
-    pub fn new(object: T, offset: Vec3) -> Self {
-        Self {
-            bbox: object.bounding_box() + offset,
-            object,
-            offset,
-        }
-    }
 }
 
 impl<T: Mesh> Mesh for Translate<T> {
@@ -365,11 +343,53 @@ impl<T: Mesh> Mesh for Translate<T> {
     }
 }
 
+impl<T: Mesh> Translate<T> {
+    pub fn new(object: T, offset: Vec3) -> Self {
+        Self {
+            bbox: object.bounding_box() + offset,
+            object,
+            offset,
+        }
+    }
+}
+
 pub struct RotateY<T: Mesh> {
     object: T,
     sin_theta: f32,
     cos_theta: f32,
     bbox: Aabb,
+}
+
+impl<T: Mesh> Mesh for RotateY<T> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let mut origin = ray.origin;
+        let mut direction = ray.direction;
+
+        origin[0] = self.cos_theta * ray.origin[0] - self.sin_theta * ray.origin[2];
+        origin[2] = self.sin_theta * ray.origin[0] + self.cos_theta * ray.origin[2];
+
+        direction[0] = self.cos_theta * ray.direction[0] - self.sin_theta * ray.direction[2];
+        direction[2] = self.sin_theta * ray.direction[0] + self.cos_theta * ray.direction[2];
+
+        if let Some(mut hit) = self
+            .object
+            .hit(&Ray::new(origin, direction, ray.time), ray_t)
+        {
+            hit.point[0] = self.cos_theta * hit.point[0] - self.sin_theta * hit.point[2];
+            hit.point[2] = self.sin_theta * hit.point[0] + self.cos_theta * hit.point[2];
+
+            hit.normal[0] = self.cos_theta * hit.normal[0] - self.sin_theta * hit.normal[2];
+            hit.normal[2] = self.sin_theta * hit.normal[0] + self.cos_theta * hit.normal[2];
+
+            Some(hit)
+        } else {
+            None
+        }
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.bbox
+    }
 }
 
 impl<T: Mesh> RotateY<T> {
@@ -411,38 +431,6 @@ impl<T: Mesh> RotateY<T> {
     }
 }
 
-impl<T: Mesh> Mesh for RotateY<T> {
-    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
-        let mut origin = ray.origin;
-        let mut direction = ray.direction;
-
-        origin[0] = self.cos_theta * ray.origin[0] - self.sin_theta * ray.origin[2];
-        origin[2] = self.sin_theta * ray.origin[0] + self.cos_theta * ray.origin[2];
-
-        direction[0] = self.cos_theta * ray.direction[0] - self.sin_theta * ray.direction[2];
-        direction[2] = self.sin_theta * ray.direction[0] + self.cos_theta * ray.direction[2];
-
-        if let Some(mut hit) = self
-            .object
-            .hit(&Ray::new(origin, direction, ray.time), ray_t)
-        {
-            hit.point[0] = self.cos_theta * hit.point[0] - self.sin_theta * hit.point[2];
-            hit.point[2] = self.sin_theta * hit.point[0] + self.cos_theta * hit.point[2];
-
-            hit.normal[0] = self.cos_theta * hit.normal[0] - self.sin_theta * hit.normal[2];
-            hit.normal[2] = self.sin_theta * hit.normal[0] + self.cos_theta * hit.normal[2];
-
-            Some(hit)
-        } else {
-            None
-        }
-    }
-
-    fn bounding_box(&self) -> &Aabb {
-        &self.bbox
-    }
-}
-
 #[derive(Default, Clone)]
 pub struct Aabb {
     x: Interval,
@@ -459,6 +447,18 @@ impl Index<usize> for Aabb {
             1 => &self.y,
             2 => &self.z,
             _ => panic!("Invalid axis"),
+        }
+    }
+}
+
+impl Add<Vec3> for &Aabb {
+    type Output = Aabb;
+
+    fn add(self, rhs: Vec3) -> Self::Output {
+        Aabb {
+            x: &self.x + rhs.x,
+            y: &self.y + rhs.y,
+            z: &self.z + rhs.z,
         }
     }
 }
@@ -551,18 +551,6 @@ impl Aabb {
     }
 }
 
-impl Add<Vec3> for &Aabb {
-    type Output = Aabb;
-
-    fn add(self, rhs: Vec3) -> Self::Output {
-        Aabb {
-            x: &self.x + rhs.x,
-            y: &self.y + rhs.y,
-            z: &self.z + rhs.z,
-        }
-    }
-}
-
 pub struct Bvh {
     left: Arc<dyn Mesh + Sync + Send>,
     right: Arc<dyn Mesh + Sync + Send>,
@@ -636,27 +624,13 @@ impl Mesh for Bvh {
     }
 }
 
-pub struct ConstantMedium<T: Mesh> {
-    boundary: T,
-    density: f32,
-    material: Arc<dyn Material + Send + Sync>,
+pub struct ConstantMedium<B: Mesh, T: Texture> {
+    pub boundary: B,
+    pub material: Isotropic<T>,
+    pub density: f32,
 }
 
-impl<T: Mesh> ConstantMedium<T> {
-    pub fn new(boundary: T, density: f32, texture: Arc<dyn Texture + Send + Sync>) -> Self {
-        Self {
-            boundary,
-            density: -1. / density,
-            material: Isotropic::new(texture),
-        }
-    }
-
-    pub fn from_color(boundary: T, density: f32, color: Color) -> Self {
-        Self::new(boundary, density, SolidTexture::new(color))
-    }
-}
-
-impl<T: Mesh> Mesh for ConstantMedium<T> {
+impl<B: Mesh, T: Texture> Mesh for ConstantMedium<B, T> {
     fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
         let mut hit1 = self.boundary.hit(ray, &Interval::UNIVERSE)?;
         let mut hit2 = self
@@ -681,7 +655,8 @@ impl<T: Mesh> Mesh for ConstantMedium<T> {
 
         let ray_length = ray.direction.length();
         let distance_inside_boundary = (hit2.distance - hit1.distance) * ray_length;
-        let hit_distance = self.density * rand::random::<f32>().ln();
+        let density = -1. / self.density;
+        let hit_distance = density * rand::random::<f32>().ln();
 
         if hit_distance > distance_inside_boundary {
             return None;
@@ -694,12 +669,28 @@ impl<T: Mesh> Mesh for ConstantMedium<T> {
             distance,
             normal: Vec3::X,
             front_face: true,
-            material: self.material.clone(),
+            material: &self.material,
             uv: Vec2::ZERO,
         })
     }
 
     fn bounding_box(&self) -> &Aabb {
         &self.boundary.bounding_box()
+    }
+}
+
+impl<B: Mesh> ConstantMedium<B, SolidTexture> {
+    pub fn from_color(boundary: B, density: f32, color: Color) -> Self {
+        Self::new(boundary, density, SolidTexture::from(color))
+    }
+}
+
+impl<B: Mesh, T: Texture> ConstantMedium<B, T> {
+    pub fn new(boundary: B, density: f32, texutre: T) -> Self {
+        Self {
+            boundary,
+            density,
+            material: Isotropic::from(texutre),
+        }
     }
 }
