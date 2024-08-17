@@ -1,12 +1,15 @@
+use core::f32;
 use std::{
     ops::{Add, Index},
     sync::Arc,
 };
 
+use bevy_color::Color;
 use bevy_math::{Vec2, Vec3};
 
 use crate::{
-    material::Material,
+    material::{Isotropic, Material},
+    texture::{SolidTexture, Texture},
     utils::{degrees_to_radians, PI},
     Interval, Ray,
 };
@@ -97,6 +100,7 @@ impl Mesh for World {
     }
 }
 
+#[derive(Clone)]
 pub struct Sphere {
     initial_center: Vec3,
     center_delta: Vec3,
@@ -629,5 +633,73 @@ impl Mesh for Bvh {
 
     fn bounding_box(&self) -> &Aabb {
         &self.bbox
+    }
+}
+
+pub struct ConstantMedium<T: Mesh> {
+    boundary: T,
+    density: f32,
+    material: Arc<dyn Material + Send + Sync>,
+}
+
+impl<T: Mesh> ConstantMedium<T> {
+    pub fn new(boundary: T, density: f32, texture: Arc<dyn Texture + Send + Sync>) -> Self {
+        Self {
+            boundary,
+            density: -1. / density,
+            material: Isotropic::new(texture),
+        }
+    }
+
+    pub fn from_color(boundary: T, density: f32, color: Color) -> Self {
+        Self::new(boundary, density, SolidTexture::new(color))
+    }
+}
+
+impl<T: Mesh> Mesh for ConstantMedium<T> {
+    fn hit(&self, ray: &Ray, ray_t: &Interval) -> Option<Hit> {
+        let mut hit1 = self.boundary.hit(ray, &Interval::UNIVERSE)?;
+        let mut hit2 = self
+            .boundary
+            .hit(ray, &(hit1.distance + 0.0001..f32::INFINITY).into())?;
+
+        if hit1.distance < ray_t.start() {
+            hit1.distance = ray_t.start();
+        }
+
+        if hit2.distance > ray_t.end() {
+            hit2.distance = ray_t.end();
+        }
+
+        if hit1.distance >= hit2.distance {
+            return None;
+        }
+
+        if hit1.distance < 0. {
+            hit1.distance = 0.;
+        }
+
+        let ray_length = ray.direction.length();
+        let distance_inside_boundary = (hit2.distance - hit1.distance) * ray_length;
+        let hit_distance = self.density * rand::random::<f32>().ln();
+
+        if hit_distance > distance_inside_boundary {
+            return None;
+        }
+
+        let distance = hit1.distance + hit_distance / ray_length;
+
+        Some(Hit {
+            point: ray.get_point(distance),
+            distance,
+            normal: Vec3::X,
+            front_face: true,
+            material: self.material.clone(),
+            uv: Vec2::ZERO,
+        })
+    }
+
+    fn bounding_box(&self) -> &Aabb {
+        &self.boundary.bounding_box()
     }
 }

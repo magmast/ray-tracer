@@ -45,6 +45,8 @@ impl From<Range<f32>> for Interval {
 }
 
 impl Interval {
+    const UNIVERSE: Self = Self(f32::NEG_INFINITY..f32::INFINITY);
+
     pub fn start(&self) -> f32 {
         self.0.start
     }

@@ -154,3 +154,28 @@ impl Material for DiffuseLight {
         self.texture.value(uv, point)
     }
 }
+
+pub struct Isotropic {
+    texture: Arc<dyn Texture + Send + Sync>,
+}
+
+impl Isotropic {
+    pub fn new(texture: Arc<dyn Texture + Send + Sync>) -> Arc<dyn Material + Sync + Send> {
+        Arc::new(Self { texture })
+    }
+
+    pub fn from_color(color: Color) -> Arc<dyn Material + Sync + Send> {
+        Self::new(SolidTexture::new(color))
+    }
+}
+
+impl Material for Isotropic {
+    fn scatter(&self, r_in: &Ray, hit: &Hit) -> Option<Scatter> {
+        let rng = rand::thread_rng();
+
+        Some(Scatter {
+            scattered: Ray::new(hit.point, random_unit_vec(rng), r_in.time),
+            attenuation: self.texture.value(hit.uv, hit.point),
+        })
+    }
+}

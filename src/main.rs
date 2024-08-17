@@ -8,7 +8,7 @@ use rand::prelude::*;
 use ray_tracing::{
     camera::{Camera, CameraConfig},
     material::{Dielectric, DiffuseLight, Lambertian, Metal},
-    mesh::{Bvh, Cube, Quad, RotateY, Sphere, Translate, World},
+    mesh::{Bvh, ConstantMedium, Cube, Quad, RotateY, Sphere, Translate, World},
     texture::{CheckerTexture, ImageTexture, NoiseTexture, SolidTexture},
     utils::random_vec,
 };
@@ -343,8 +343,199 @@ fn cornell_box() -> ImageResult<(CameraConfig, World)> {
     ))
 }
 
+#[allow(unused)]
+fn cornell_smoke() -> ImageResult<(CameraConfig, World)> {
+    let red = Lambertian::from_color(Color::linear_rgb(0.65, 0.05, 0.05));
+    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
+    let green = Lambertian::from_color(Color::linear_rgb(0.12, 0.45, 0.15));
+    let light = DiffuseLight::from_color(Color::linear_rgb(7., 7., 7.));
+
+    let mut world = World::new();
+    world.push(Quad::new(
+        Vec3::X * 555.,
+        Vec3::Y * 555.,
+        Vec3::Z * 555.,
+        green.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::ZERO,
+        Vec3::Y * 555.,
+        Vec3::Z * 555.,
+        red.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::new(113., 554., 127.),
+        Vec3::X * 330.0,
+        Vec3::Z * 305.0,
+        light.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::ZERO,
+        Vec3::X * 555.,
+        Vec3::Z * 555.,
+        white.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::ONE * 555.,
+        Vec3::X * -555.,
+        Vec3::Z * -555.,
+        white.clone(),
+    ));
+    world.push(Quad::new(
+        Vec3::Z * 555.,
+        Vec3::X * 555.,
+        Vec3::Y * 555.,
+        white.clone(),
+    ));
+
+    let box1 = Translate::new(
+        RotateY::new(
+            Cube::new(Vec3::ZERO, Vec3::new(165., 330., 165.), white.clone()),
+            15.,
+        ),
+        Vec3::new(265., 0., 295.),
+    );
+    world.push(ConstantMedium::from_color(box1, 0.01, Color::BLACK));
+
+    let box2 = Translate::new(
+        RotateY::new(
+            Cube::new(Vec3::ZERO, Vec3::new(165., 165., 165.), white.clone()),
+            -18.,
+        ),
+        Vec3::new(130., 0., 65.),
+    );
+    world.push(ConstantMedium::from_color(box2, 0.01, Color::WHITE));
+
+    Ok((
+        CameraConfig {
+            width: 600,
+            height: 600,
+            samples_per_pixel: 200,
+            max_depth: 50,
+            background: Color::BLACK,
+            lookfrom: Vec3::new(278.0, 278.0, -800.0),
+            lookat: Vec3::new(278.0, 278.0, 0.0),
+            vup: Vec3::Y,
+            defocus_angle: 0.0,
+            vfov: 40.0,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
+#[allow(unused)]
+fn final_scene() -> ImageResult<(CameraConfig, World)> {
+    let mut boxes1 = World::new();
+    let ground = Lambertian::from_color(Color::linear_rgb(0.48, 0.83, 0.53));
+
+    let mut rng = rand::thread_rng();
+
+    let boxes_per_side = 20;
+    for i in 0..boxes_per_side {
+        for j in 0..boxes_per_side {
+            let w = 100.;
+            let x0 = -1000. + i as f32 * w;
+            let z0 = -1000. + j as f32 * w;
+            let y0 = 0.;
+            let x1 = x0 + w;
+            let y1 = rng.gen_range(0.0..=100.);
+            let z1 = z0 + w;
+            boxes1.push(Cube::new(
+                Vec3::new(x0, y0, z0),
+                Vec3::new(x1, y1, z1),
+                ground.clone(),
+            ));
+        }
+    }
+
+    let mut world = World::new();
+    world.push(Bvh::from(boxes1));
+
+    let light = DiffuseLight::from_color(Color::linear_rgb(7., 7., 7.));
+    world.push(Quad::new(
+        Vec3::new(123., 554., 147.),
+        Vec3::X * 300.,
+        Vec3::Z * 265.,
+        light.clone(),
+    ));
+
+    let center1 = Vec3::new(400., 400., 200.);
+    let center2 = center1 + Vec3::X * 30.;
+    let sphere_material = Lambertian::from_color(Color::linear_rgb(0.7, 0.3, 0.1));
+    world.push(Sphere::moving(center1, center2, 50., sphere_material));
+
+    world.push(Sphere::stationary(
+        Vec3::new(260., 150., 45.),
+        50.,
+        Dielectric::new(1.5),
+    ));
+    world.push(Sphere::stationary(
+        Vec3::new(0., 150., 145.),
+        50.,
+        Metal::new(Color::linear_rgb(0.8, 0.8, 0.9), 1.),
+    ));
+
+    let boundary = Sphere::stationary(Vec3::new(360., 150., 145.), 70., Dielectric::new(1.5));
+    world.push(ConstantMedium::from_color(
+        boundary,
+        0.2,
+        Color::linear_rgb(0.2, 0.4, 0.9),
+    ));
+
+    let boundary = Sphere::stationary(Vec3::ZERO, 5000., Dielectric::new(1.5));
+    world.push(ConstantMedium::from_color(boundary, 0.0001, Color::WHITE));
+
+    let emat = Lambertian::new(ImageTexture::open("images/earthmap.jpg")?);
+    world.push(Sphere::stationary(Vec3::new(400., 200., 400.), 100., emat));
+
+    let pertext = NoiseTexture::<256>::new(&mut rng, 0.2);
+    world.push(Sphere::stationary(
+        Vec3::new(220., 280., 300.),
+        80.,
+        Lambertian::new(pertext),
+    ));
+
+    let mut boxes2 = World::new();
+    let white = Lambertian::from_color(Color::linear_rgb(0.73, 0.73, 0.73));
+    let ns = 1000;
+    for i in 0..ns {
+        boxes2.push(Sphere::stationary(
+            Vec3::new(
+                rng.gen_range(0.0..165.),
+                rng.gen_range(0.0..165.),
+                rng.gen_range(0.0..165.),
+            ),
+            10.,
+            white.clone(),
+        ));
+    }
+
+    world.push(Translate::new(
+        RotateY::new(Bvh::from(boxes2), 15.),
+        Vec3::new(-100., 270., 395.),
+    ));
+
+    Ok((
+        CameraConfig {
+            width: 800,
+            height: 800,
+            samples_per_pixel: 10_000,
+            max_depth: 40,
+            background: Color::BLACK,
+            vfov: 40.,
+            lookfrom: Vec3::new(478., 278., -600.),
+            lookat: Vec3::new(278., 278., 0.),
+            vup: Vec3::Y,
+            defocus_angle: 0.,
+            ..Default::default()
+        },
+        world,
+    ))
+}
+
 fn main() -> ImageResult<()> {
-    let (camera_config, world) = cornell_box()?;
+    let (camera_config, world) = cornell_smoke()?;
     let bvh_world = Bvh::from(&world);
 
     let camera = Camera::new(camera_config);

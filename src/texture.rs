@@ -80,8 +80,8 @@ impl Texture for ImageTexture {
         let u = Interval::from(0.0..1.).clamp(uv.x);
         let v = 1. - Interval::from(0.0..1.).clamp(uv.y);
 
-        let i = (u * self.image.width() as f32) as u32;
-        let j = (v * self.image.height() as f32) as u32;
+        let i = (u * (self.image.width() as f32 - 1.)) as u32;
+        let j = (v * (self.image.height() as f32 - 1.)) as u32;
         let pixel = self.image.get_pixel(i, j);
 
         let color_scale = 1. / 255.;
@@ -93,7 +93,7 @@ impl Texture for ImageTexture {
     }
 }
 
-pub struct NoiseTexture<const N: usize> {
+pub struct NoiseTexture<const N: usize = 256> {
     perlin: Perlin<N>,
     scale: f32,
 }
