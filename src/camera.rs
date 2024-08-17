@@ -1,6 +1,7 @@
 use bevy_color::{Color, ColorToComponents as _, ColorToPacked};
 use bevy_math::Vec3;
 use image::{Rgb, RgbImage};
+use indicatif::ProgressBar;
 use rand::Rng;
 
 use crate::{
@@ -95,12 +96,17 @@ impl Camera {
     }
 
     pub fn render(&self, world: &(impl Mesh + Sync)) -> RgbImage {
-        RgbImage::from_par_fn(self.config.width, self.config.height, |x, y| {
-            Rgb(self
+        let bar = ProgressBar::new(self.config.width as u64 * self.config.height as u64);
+        let image = RgbImage::from_par_fn(self.config.width, self.config.height, |x, y| {
+            let rgb = Rgb(self
                 .render_pixel(world, x, y)
                 .to_srgba()
-                .to_u8_array_no_alpha())
-        })
+                .to_u8_array_no_alpha());
+            bar.inc(1);
+            rgb
+        });
+        bar.finish();
+        image
     }
 
     fn render_pixel(&self, world: &impl Mesh, x: u32, y: u32) -> Color {
